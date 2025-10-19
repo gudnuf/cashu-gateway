@@ -1,5 +1,6 @@
 import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
+import { type CommandResponse, createCliServer } from "./cli";
 import { Keys } from "./keys";
 import { NamedLogger } from "./logger";
 import { Wallet } from "./wallet";
@@ -26,11 +27,23 @@ const gatewayWallet = new Wallet({
 
 await gatewayWallet.initialize();
 
+async function handleCommand(command: string, _args: string[]): Promise<CommandResponse> {
+  switch (command) {
+    default:
+      return {
+        success: false,
+        error: `Unknown command: ${command}`,
+      };
+  }
+}
+
+const PORT = 3003;
+const server = createCliServer(PORT, logger, handleCommand);
+
 process.on("SIGINT", () => {
   logger.info("Shutting down");
+  server.stop();
   gatewayWallet.close();
   db.close();
   process.exit(0);
 });
-
-setInterval(() => {}, 1000);

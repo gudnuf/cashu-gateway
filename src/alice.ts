@@ -1,5 +1,6 @@
 import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
+import { type CommandResponse, createCliServer } from "./cli";
 import { Keys } from "./keys";
 import { NamedLogger } from "./logger";
 import { Wallet } from "./wallet";
@@ -26,11 +27,29 @@ const aliceWallet = new Wallet({
 
 await aliceWallet.initialize();
 
+async function handleCommand(command: string, _args: string[]): Promise<CommandResponse> {
+  switch (command) {
+    case "receive":
+      return {
+        success: true,
+        message: "Command received",
+      };
+    default:
+      return {
+        success: false,
+        error: `Unknown command: ${command}`,
+      };
+  }
+}
+
+// Command server
+const PORT = 3001;
+const server = createCliServer(PORT, logger, handleCommand);
+
 process.on("SIGINT", () => {
   logger.info("Shutting down");
+  server.stop();
   aliceWallet.close();
   db.close();
   process.exit(0);
 });
-
-setInterval(() => {}, 1000);

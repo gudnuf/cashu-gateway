@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "bun run dev.ts",
+    "cli": "bun run src/cli.ts",
     "setup-env": "bun run scripts/setup-env.ts",
     "test": "bun test",
     "lint": "biome lint .",
