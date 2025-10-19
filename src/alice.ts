@@ -39,6 +39,12 @@ async function handleCommand(command: string, _args: string[]): Promise<CommandR
         success: true,
         message: "Command received",
       };
+    case "pk":
+      return {
+        success: true,
+        message: "Public key retrieved",
+        data: { publicKey: aliceKeys.getPublicKeyHex() },
+      };
     default:
       return {
         success: false,

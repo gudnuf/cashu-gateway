@@ -34,6 +34,12 @@ await gatewayWallet.initialize();
 
 async function handleCommand(command: string, _args: string[]): Promise<CommandResponse> {
   switch (command) {
+    case "pk":
+      return {
+        success: true,
+        message: "Public key retrieved",
+        data: { publicKey: gatewayKeys.getPublicKeyHex() },
+      };
     default:
       return {
         success: false,

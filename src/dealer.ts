@@ -34,6 +34,12 @@ await dealerWallet.initialize();
 
 async function handleCommand(command: string, _args: string[]): Promise<CommandResponse> {
   switch (command) {
+    case "pk":
+      return {
+        success: true,
+        message: "Public key retrieved",
+        data: { publicKey: dealerKeys.getPublicKeyHex() },
+      };
     default:
       return {
         success: false,
