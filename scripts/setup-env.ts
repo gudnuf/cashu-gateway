@@ -1,11 +1,11 @@
 #!/usr/bin/env bun
-import { Keys } from '../src/keys';
-import { existsSync } from 'fs';
-import { writeFile } from 'fs/promises';
+import { existsSync } from "node:fs";
+import { writeFile } from "node:fs/promises";
+import { Keys } from "../src/keys";
 
-const envPath = '.env';
-const printOnly = process.argv.includes('--print');
-const force = process.argv.includes('--force');
+const envPath = ".env";
+const printOnly = process.argv.includes("--print");
+const force = process.argv.includes("--force");
 
 const alice = Keys.generateMnemonic(128);
 const dealer = Keys.generateMnemonic(128);
@@ -28,7 +28,7 @@ if (printOnly) {
 }
 
 if (existsSync(envPath) && !force) {
-  console.error('.env exists, use --force to overwrite');
+  console.error(".env exists, use --force to overwrite");
   process.exit(1);
 }
 
@@ -46,6 +46,6 @@ LOG_LEVEL="info"
 # DEALER_WALLET_LOG_LEVEL="off"
 `;
 
-await writeFile(envPath, content, 'utf-8');
+await writeFile(envPath, content, "utf-8");
 
-console.log('\x1b[32m✓ Environment variables written to .env\x1b[0m');
+console.log("\x1b[32m✓ Environment variables written to .env\x1b[0m");

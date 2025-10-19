@@ -5,7 +5,11 @@
   "scripts": {
     "dev": "bun run dev.ts",
     "setup-env": "bun run scripts/setup-env.ts",
-    "test": "bun test"
+    "test": "bun test",
+    "lint": "biome lint .",
+    "lint:fix": "biome lint --write .",
+    "format": "biome format --write .",
+    "check": "biome check --write ."
   },
   "dependencies": {
     "@cashu/cashu-ts": "3.0.0-alpha.5.1",
@@ -15,6 +19,7 @@
     "nostr-tools": "2.17.0"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.2.6",
     "@types/bun": "latest"
   },
   "peerDependencies": {

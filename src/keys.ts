@@ -1,7 +1,7 @@
-import { generateMnemonic, mnemonicToSeedSync, validateMnemonic } from '@scure/bip39';
-import { wordlist } from '@scure/bip39/wordlists/english.js';
-import { HDKey } from '@scure/bip32';
-import { getPublicKey } from 'nostr-tools';
+import { HDKey } from "@scure/bip32";
+import { generateMnemonic, mnemonicToSeedSync, validateMnemonic } from "@scure/bip39";
+import { wordlist } from "@scure/bip39/wordlists/english.js";
+import { getPublicKey } from "nostr-tools";
 
 /**
  * Manages BIP39 mnemonic-derived Nostr keypairs following NIP-06 specification
@@ -17,7 +17,7 @@ export class Keys {
    */
   constructor(mnemonic: string, derivationPath: string = "m/44'/1237'/0'/0/0") {
     if (!validateMnemonic(mnemonic, wordlist)) {
-      throw new Error('Invalid BIP39 mnemonic');
+      throw new Error("Invalid BIP39 mnemonic");
     }
 
     this.mnemonic = mnemonic;
@@ -27,21 +27,21 @@ export class Keys {
     const derivedKey = hdKey.derive(derivationPath);
 
     if (!derivedKey.privateKey) {
-      throw new Error('Failed to derive private key');
+      throw new Error("Failed to derive private key");
     }
 
     this.privateKey = derivedKey.privateKey;
 
     const publicKeyHex = getPublicKey(this.privateKey);
-    this.publicKey = Buffer.from(publicKeyHex, 'hex');
+    this.publicKey = Buffer.from(publicKeyHex, "hex");
   }
 
   getPrivateKeyHex(): string {
-    return Buffer.from(this.privateKey).toString('hex');
+    return Buffer.from(this.privateKey).toString("hex");
   }
 
   getPublicKeyHex(): string {
-    return Buffer.from(this.publicKey).toString('hex');
+    return Buffer.from(this.publicKey).toString("hex");
   }
 
   getPrivateKey(): Uint8Array {
@@ -63,4 +63,3 @@ export class Keys {
     return generateMnemonic(wordlist, strength);
   }
 }
-

@@ -1,4 +1,4 @@
-import { type Event, type Filter, Relay } from 'nostr-tools';
+import { type Event, type Filter, Relay } from "nostr-tools";
 
 export class NostrClient {
   async subscribe(
@@ -7,7 +7,7 @@ export class NostrClient {
     callback: (event: Event) => void
   ): Promise<void> {
     const relay = await Relay.connect(relayUrl);
-    
+
     relay.subscribe([filter], {
       onevent: callback,
       oneose: () => {
@@ -22,4 +22,3 @@ export class NostrClient {
     console.log(`Event published to ${relayUrl}`);
   }
 }
-

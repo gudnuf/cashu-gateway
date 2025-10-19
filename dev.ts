@@ -1,3 +1,4 @@
+import type { Subprocess } from "bun";
 import { spawn } from "bun";
 
 console.log("Starting all processes...\n");
@@ -8,7 +9,7 @@ const processes = [
   { name: "Dealer", file: "src/dealer.ts" },
 ];
 
-const procs: any[] = [];
+const procs: Subprocess[] = [];
 
 for (const proc of processes) {
   const bunProc = spawn({
@@ -44,9 +45,10 @@ for (const proc of processes) {
 
 process.on("SIGINT", () => {
   console.log("\n\nShutting down all processes...");
-  procs.forEach((p) => p.kill());
+  for (const p of procs) {
+    p.kill();
+  }
   process.exit(0);
 });
 
 await Promise.all(procs.map((p) => p.exited));
-
