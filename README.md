@@ -48,3 +48,7 @@ bun run dev
 ```
 
 Press `Ctrl+C` to stop all processes.
+
+## Service Communication
+
+Services communicate via NIP-04 encrypted direct messages over Nostr relays. Alice can send requests to Gateway and Dealer, and they respond with the requested information.

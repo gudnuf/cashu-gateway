@@ -3,6 +3,8 @@ import { mkdirSync } from "node:fs";
 import { type CommandResponse, createCliServer } from "./cli";
 import { Keys } from "./keys";
 import { NamedLogger } from "./logger";
+import { NostrClient } from "./nostr";
+import type { InfoRequest } from "./types";
 import { Wallet } from "./wallet";
 
 const logger = new NamedLogger("Alice");
@@ -15,6 +17,11 @@ if (!mnemonic) {
 const mintUrl = process.env.MINT_URL;
 if (!mintUrl) {
   throw new Error("MINT_URL environment variable is required");
+}
+
+const relayUrl = process.env.RELAY_URL;
+if (!relayUrl) {
+  throw new Error("RELAY_URL environment variable is required");
 }
 
 const aliceKeys = new Keys(mnemonic);
@@ -32,7 +39,9 @@ const aliceWallet = new Wallet({
 
 await aliceWallet.initialize();
 
-async function handleCommand(command: string, _args: string[]): Promise<CommandResponse> {
+const nostr = new NostrClient(aliceKeys, relayUrl, logger);
+
+async function handleCommand(command: string, args: string[]): Promise<CommandResponse> {
   switch (command) {
     case "receive":
       return {
@@ -45,6 +54,38 @@ async function handleCommand(command: string, _args: string[]): Promise<CommandR
         message: "Public key retrieved",
         data: { publicKey: aliceKeys.getPublicKeyHex() },
       };
+    case "info": {
+      const publicKey = args[0];
+      if (!publicKey || publicKey.length !== 64) {
+        return {
+          success: false,
+          error: "Usage: info <public_key>",
+        };
+      }
+
+      try {
+        const request: InfoRequest = { method: "info" };
+        const response = await nostr.requestAndWaitForResponse(publicKey, request);
+
+        if (response.error) {
+          return {
+            success: false,
+            error: response.error.message,
+          };
+        }
+
+        return {
+          success: true,
+          message: "Info received",
+          data: response.result,
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : "Unknown error",
+        };
+      }
+    }
     default:
       return {
         success: false,

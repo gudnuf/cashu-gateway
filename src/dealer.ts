@@ -1,8 +1,9 @@
 import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
-import { type CommandResponse, createCliServer } from "./cli";
 import { Keys } from "./keys";
 import { NamedLogger } from "./logger";
+import { NostrClient } from "./nostr";
+import type { Request, Response } from "./types";
 import { Wallet } from "./wallet";
 
 const logger = new NamedLogger("Dealer");
@@ -15,6 +16,11 @@ if (!mnemonic) {
 const mintUrl = process.env.MINT_URL;
 if (!mintUrl) {
   throw new Error("MINT_URL environment variable is required");
+}
+
+const relayUrl = process.env.RELAY_URL;
+if (!relayUrl) {
+  throw new Error("RELAY_URL environment variable is required");
 }
 
 const dealerKeys = new Keys(mnemonic);
@@ -32,28 +38,36 @@ const dealerWallet = new Wallet({
 
 await dealerWallet.initialize();
 
-async function handleCommand(command: string, _args: string[]): Promise<CommandResponse> {
-  switch (command) {
-    case "pk":
+const nostr = new NostrClient(dealerKeys, relayUrl, logger);
+
+async function handleRequest(
+  _senderPubkey: string,
+  request: Request
+): Promise<Response | undefined> {
+  switch (request.method) {
+    case "info":
       return {
-        success: true,
-        message: "Public key retrieved",
-        data: { publicKey: dealerKeys.getPublicKeyHex() },
+        result: {
+          type: "dealer",
+          name: "Dealer",
+          timestamp: Date.now(),
+        },
       };
     default:
       return {
-        success: false,
-        error: `Unknown command: ${command}`,
+        error: {
+          code: -32601,
+          message: `Method not found: ${request.method}`,
+        },
       };
   }
 }
 
-const PORT = 3002;
-const server = createCliServer(PORT, logger, handleCommand);
+await nostr.listen(handleRequest);
+logger.info("Ready");
 
 process.on("SIGINT", () => {
   logger.info("Shutting down");
-  server.stop();
   dealerWallet.close();
   db.close();
   process.exit(0);
