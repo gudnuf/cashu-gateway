@@ -11,10 +11,16 @@ const alice = Keys.generateMnemonic(128);
 const dealer = Keys.generateMnemonic(128);
 const gateway = Keys.generateMnemonic(128);
 
+const MINT_URL = "http://localhost:8085";
+const RELAY_URL = "ws://localhost:4869";
+
 if (printOnly) {
   console.log(`ALICE_MNEMONIC="${alice}"`);
   console.log(`DEALER_MNEMONIC="${dealer}"`);
   console.log(`GATEWAY_MNEMONIC="${gateway}"`);
+  console.log();
+  console.log(`MINT_URL="${MINT_URL}"`);
+  console.log(`RELAY_URL="${RELAY_URL}"`);
   console.log();
   console.log(`LOG_LEVEL="info"`);
   console.log();
@@ -35,6 +41,9 @@ if (existsSync(envPath) && !force) {
 const content = `ALICE_MNEMONIC="${alice}"
 DEALER_MNEMONIC="${dealer}"
 GATEWAY_MNEMONIC="${gateway}"
+
+MINT_URL="${MINT_URL}"
+RELAY_URL="${RELAY_URL}"
 
 LOG_LEVEL="info"
 

@@ -12,6 +12,11 @@ if (!mnemonic) {
   throw new Error("ALICE_MNEMONIC environment variable is required");
 }
 
+const mintUrl = process.env.MINT_URL;
+if (!mintUrl) {
+  throw new Error("MINT_URL environment variable is required");
+}
+
 const aliceKeys = new Keys(mnemonic);
 logger.info(`Public key: ${aliceKeys.getPublicKeyHex()}`);
 
@@ -20,7 +25,7 @@ mkdirSync("./data", { recursive: true });
 const db = new Database("./data/alice.db", { create: true });
 
 const aliceWallet = new Wallet({
-  mintUrl: "https://testnut.cashu.space",
+  mintUrl,
   db,
   name: "Alice",
 });
@@ -42,7 +47,6 @@ async function handleCommand(command: string, _args: string[]): Promise<CommandR
   }
 }
 
-// Command server
 const PORT = 3001;
 const server = createCliServer(PORT, logger, handleCommand);
 

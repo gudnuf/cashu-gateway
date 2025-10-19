@@ -12,6 +12,11 @@ if (!mnemonic) {
   throw new Error("DEALER_MNEMONIC environment variable is required");
 }
 
+const mintUrl = process.env.MINT_URL;
+if (!mintUrl) {
+  throw new Error("MINT_URL environment variable is required");
+}
+
 const dealerKeys = new Keys(mnemonic);
 logger.info(`Public key: ${dealerKeys.getPublicKeyHex()}`);
 
@@ -20,7 +25,7 @@ mkdirSync("./data", { recursive: true });
 const db = new Database("./data/dealer.db", { create: true });
 
 const dealerWallet = new Wallet({
-  mintUrl: "https://testnut.cashu.space",
+  mintUrl,
   db,
   name: "Dealer",
 });
