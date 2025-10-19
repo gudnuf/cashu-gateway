@@ -5,4 +5,8 @@ dist/
 .env
 .env.local
 data/
+.direnv/
+
+# Pre-commit hooks
+.pre-commit-config.yaml
 
