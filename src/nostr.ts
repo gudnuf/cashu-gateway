@@ -1,7 +1,7 @@
 import { type Event, type Filter, finalizeEvent, nip04, Relay } from "nostr-tools";
 import type { Keys } from "./keys";
 import type { NamedLogger } from "./logger";
-import type { Request, Response } from "./types";
+import type { Methods, Request, RequestForMethod, Response, ResponseForMethod } from "./types";
 
 type RequestHandler = (senderPubkey: string, request: Request) => Promise<Response | undefined>;
 
@@ -61,7 +61,7 @@ export class NostrClient {
     );
 
     await this.publish(event);
-    this.logger?.info(`Request sent: ${request.method} -> ${recipientPubkey.slice(0, 8)}`);
+    this.logger?.info(`Request sent: ${request.method} -> ${recipientPubkey}`);
     return event.id;
   }
 
@@ -85,14 +85,14 @@ export class NostrClient {
     );
 
     await this.publish(event);
-    this.logger?.info(`Response sent: ${recipientPubkey.slice(0, 8)}`);
+    this.logger?.info(`Response sent to ${recipientPubkey}`);
   }
 
-  async requestAndWaitForResponse(
+  async requestAndWaitForResponse<M extends Methods>(
     recipientPubkey: string,
-    request: Request,
+    request: RequestForMethod<M>,
     timeoutMs = 30000
-  ): Promise<Response> {
+  ): Promise<ResponseForMethod<M>> {
     const requestEventId = await this.sendRequest(recipientPubkey, request);
     const myPubkey = this.keys.getPublicKeyHex();
 
@@ -111,9 +111,9 @@ export class NostrClient {
 
           try {
             const decrypted = await this.decrypt(event.pubkey, event.content);
-            const response = JSON.parse(decrypted) as Response;
+            const response = JSON.parse(decrypted) as ResponseForMethod<M>;
             clearTimeout(timer);
-            this.logger?.info(`Response received: ${event.pubkey.slice(0, 8)}`);
+            this.logger?.info(`Response received from ${event.pubkey}`);
             resolve(response);
           } catch (error) {
             this.logger?.error(`Failed to process response: ${error}`);
@@ -138,9 +138,7 @@ export class NostrClient {
           const message = JSON.parse(decrypted);
 
           if (message.method) {
-            this.logger?.info(
-              `Request received: ${message.method} from ${event.pubkey.slice(0, 8)}`
-            );
+            this.logger?.info(`Request received: ${message.method} from ${event.pubkey}`);
             const response = await handler(event.pubkey, message as Request);
             if (response) {
               await this.sendResponse(event.pubkey, event.id, response);

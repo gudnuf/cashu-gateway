@@ -13,6 +13,7 @@ const gateway = Keys.generateMnemonic(128);
 
 const MINT_URL = "http://localhost:8085";
 const RELAY_URL = "ws://localhost:4869";
+const NWC_URI = "nostr+walletconnect://relay.example.com?secret=CHANGE_ME&pubkey=CHANGE_ME";
 
 if (printOnly) {
   console.log(`ALICE_MNEMONIC="${alice}"`);
@@ -21,6 +22,7 @@ if (printOnly) {
   console.log();
   console.log(`MINT_URL="${MINT_URL}"`);
   console.log(`RELAY_URL="${RELAY_URL}"`);
+  console.log(`NWC_URI="${NWC_URI}"`);
   console.log();
   console.log(`LOG_LEVEL="info"`);
   console.log();
@@ -44,6 +46,7 @@ GATEWAY_MNEMONIC="${gateway}"
 
 MINT_URL="${MINT_URL}"
 RELAY_URL="${RELAY_URL}"
+NWC_URI="${NWC_URI}"
 
 LOG_LEVEL="info"
 

@@ -59,12 +59,21 @@ export class NamedLogger implements Logger {
     this.nameColor = NAME_COLORS[name] || "\x1b[37m"; // Default to white if not found
   }
 
+  private getTimestamp(): string {
+    const now = new Date();
+    const minutes = now.getMinutes().toString().padStart(2, "0");
+    const seconds = now.getSeconds().toString().padStart(2, "0");
+    const milliseconds = now.getMilliseconds().toString().padStart(3, "0");
+    return `${minutes}:${seconds}.${milliseconds}`;
+  }
+
   private formatMessage(level: LogLevel, message: string): string {
+    const timestamp = this.getTimestamp();
     const levelColor = LOG_LEVEL_COLORS[level];
     const nameStr = `${this.nameColor}[${this.name}]${RESET}`;
     const levelStr = `${levelColor}[${level.toUpperCase()}]${RESET}`;
 
-    return `${levelStr} ${nameStr} ${message}`;
+    return `${timestamp} ${levelStr} ${nameStr} ${message}`;
   }
 
   private shouldLog(level: LogLevel): boolean {

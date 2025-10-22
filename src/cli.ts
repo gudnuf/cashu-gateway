@@ -1,6 +1,9 @@
 #!/usr/bin/env bun
 
+import { getDecodedToken } from "@cashu/cashu-ts";
+import type { Keys } from "./keys";
 import type { NamedLogger } from "./logger";
+import type { Wallet } from "./wallet";
 
 export type ServiceName = "alice" | "dealer" | "gateway";
 
@@ -15,6 +18,29 @@ export type CommandResponse = {
   data?: unknown;
   error?: string;
 };
+
+export type ArgType = "string" | "number" | "hex64" | "token" | "bolt11";
+
+export type ArgumentDef = {
+  name: string;
+  type: ArgType;
+  description: string;
+  optional?: boolean;
+};
+
+export type CommandDef<TContext = unknown> = {
+  description: string;
+  args: ArgumentDef[];
+  handler: (context: TContext, parsedArgs: Record<string, unknown>) => Promise<CommandResponse>;
+};
+
+export type BaseCommandContext = {
+  wallet: Wallet;
+  keys: Keys;
+  logger: NamedLogger;
+};
+
+export type CommandRegistry<TContext = unknown> = Map<string, CommandDef<TContext>>;
 
 export type CommandHandler = (command: string, args: string[]) => Promise<CommandResponse>;
 
@@ -38,6 +64,186 @@ const COLORS = {
   gray: "\x1b[90m",
   bold: "\x1b[1m",
 };
+
+function parseArgument(
+  value: string,
+  argDef: ArgumentDef
+): { success: boolean; value?: unknown; error?: string } {
+  switch (argDef.type) {
+    case "string":
+      return { success: true, value };
+
+    case "number": {
+      const num = Number(value);
+      if (Number.isNaN(num) || num <= 0) {
+        return { success: false, error: `${argDef.name} must be a positive number` };
+      }
+      return { success: true, value: num };
+    }
+
+    case "hex64":
+      if (value.length !== 64 || !/^[0-9a-fA-F]{64}$/.test(value)) {
+        return { success: false, error: `${argDef.name} must be a 64-character hex string` };
+      }
+      return { success: true, value };
+
+    case "token":
+      try {
+        getDecodedToken(value);
+        return { success: true, value };
+      } catch {
+        return { success: false, error: `${argDef.name} must be a valid Cashu token` };
+      }
+    case "bolt11":
+      if (!value.toLowerCase().startsWith("ln")) {
+        return { success: false, error: `${argDef.name} must be a valid BOLT11 invoice` };
+      }
+      return { success: true, value };
+
+    default:
+      return { success: false, error: `Unknown argument type: ${argDef.type}` };
+  }
+}
+
+function parseArguments<TContext>(
+  args: string[],
+  commandDef: CommandDef<TContext>
+): { success: boolean; parsed?: Record<string, unknown>; error?: string } {
+  const parsed: Record<string, unknown> = {};
+  const requiredArgs = commandDef.args.filter((arg) => !arg.optional);
+
+  // Check if we have enough arguments
+  if (args.length < requiredArgs.length) {
+    const usage = commandDef.args
+      .map((arg) => (arg.optional ? `[${arg.name}]` : `<${arg.name}>`))
+      .join(" ");
+    return {
+      success: false,
+      error: `Missing required arguments. Usage: ${usage}`,
+    };
+  }
+
+  // Parse each argument
+  for (let i = 0; i < commandDef.args.length; i++) {
+    const argDef = commandDef.args[i];
+    const argValue = args[i];
+
+    // Skip optional arguments that weren't provided
+    if (!argValue && argDef.optional) {
+      continue;
+    }
+
+    const result = parseArgument(argValue, argDef);
+    if (!result.success) {
+      return { success: false, error: result.error };
+    }
+
+    parsed[argDef.name] = result.value;
+  }
+
+  return { success: true, parsed };
+}
+
+export function createCommandHandlerFromRegistry<TContext>(
+  registry: CommandRegistry<TContext>,
+  context: TContext
+): CommandHandler {
+  return async (command: string, args: string[]): Promise<CommandResponse> => {
+    const commandDef = registry.get(command);
+
+    if (!commandDef) {
+      const availableCommands = Array.from(registry.keys()).join(", ");
+      return {
+        success: false,
+        error: `Unknown command: ${command}. Available commands: ${availableCommands}`,
+      };
+    }
+
+    const parseResult = parseArguments(args, commandDef);
+    if (!parseResult.success) {
+      return {
+        success: false,
+        error: parseResult.error,
+      };
+    }
+
+    try {
+      const parsed = parseResult.parsed ?? {};
+      return await commandDef.handler(context, parsed);
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error",
+      };
+    }
+  };
+}
+
+export function createBaseCommands(): CommandRegistry<BaseCommandContext> {
+  const commands: CommandRegistry<BaseCommandContext> = new Map();
+
+  // balance command
+  commands.set("balance", {
+    description: "Get wallet balance",
+    args: [],
+    handler: async (context) => {
+      const balance = context.wallet.getBalance();
+      return {
+        success: true,
+        message: "Balance retrieved",
+        data: { balance },
+      };
+    },
+  });
+
+  commands.set("receive", {
+    description: "Receive a Cashu token",
+    args: [
+      {
+        name: "token",
+        type: "token",
+        description: "Cashu token to receive",
+      },
+    ],
+    handler: async (context, args) => {
+      await context.wallet.receiveToken(args.token as string);
+      const balance = context.wallet.getBalance();
+      return {
+        success: true,
+        message: "Token received successfully",
+        data: { balance },
+      };
+    },
+  });
+
+  commands.set("pk", {
+    description: "Get public key",
+    args: [],
+    handler: async (context) => {
+      return {
+        success: true,
+        message: "Public key retrieved",
+        data: { publicKey: context.keys.getPublicKeyHex() },
+      };
+    },
+  });
+
+  return commands;
+}
+
+export function mergeCommandRegistries<TContext>(
+  ...registries: CommandRegistry<TContext>[]
+): CommandRegistry<TContext> {
+  const merged: CommandRegistry<TContext> = new Map();
+
+  for (const registry of registries) {
+    for (const [command, def] of registry.entries()) {
+      merged.set(command, def);
+    }
+  }
+
+  return merged;
+}
 
 /**
  * Creates a CLI command server that listens for commands over HTTP
