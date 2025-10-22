@@ -1,50 +1,42 @@
-import { Database } from "bun:sqlite";
-import { mkdirSync } from "node:fs";
-import {
-  type BaseCommandContext,
-  createBaseCommands,
-  createCliServer,
-  createCommandHandlerFromRegistry,
-} from "./cli";
+import type { BaseCommandContext } from "./cli";
 import { getDealerConfig } from "./config";
-import { Keys } from "./keys";
-import { NamedLogger } from "./logger";
-import { NostrClient } from "./nostr";
+import { initializeService, setupShutdownHandler, startCliServer } from "./service";
 import type { Request, Response } from "./types";
 import { createResponse, isRequestForMethod } from "./types";
-import { Wallet } from "./wallet";
 
-const logger = new NamedLogger("Dealer");
+// ============================================================================
+// Dealer Service - Token Distribution Service
+// ============================================================================
+// The Dealer can distribute Cashu tokens and handle other dealer-specific
+// protocol operations. Currently implements basic info endpoint.
 
 const config = getDealerConfig();
 
-const dealerKeys = new Keys(config.mnemonic);
-logger.info(`Public key: ${dealerKeys.getPublicKeyHex()}`);
-
-mkdirSync("./data", { recursive: true });
-
-const db = new Database("./data/dealer.db", { create: true });
-
-const dealerWallet = new Wallet({
-  mintUrl: config.mintUrl,
-  db,
+const { wallet, keys, logger, nostr, db } = await initializeService({
   name: "Dealer",
+  mintUrl: config.mintUrl,
+  relayUrl: config.relayUrl,
+  mnemonic: config.mnemonic,
+  dbPath: "./data/dealer.db",
+  port: 3002,
 });
 
-await dealerWallet.initialize();
-
-const nostr = new NostrClient(dealerKeys, config.relayUrl, logger);
-
-const baseCommands = createBaseCommands();
+// Setup CLI server with base commands only (no custom commands yet)
 const commandContext: BaseCommandContext = {
-  wallet: dealerWallet,
-  keys: dealerKeys,
+  wallet,
+  keys,
   logger,
 };
-const commandHandler = createCommandHandlerFromRegistry(baseCommands, commandContext);
 
-const PORT = 3002;
-const server = createCliServer(PORT, logger, commandHandler);
+const { server } = startCliServer({
+  port: 3002,
+  logger,
+  baseContext: commandContext,
+});
+
+// ============================================================================
+// Dealer Protocol Handler
+// ============================================================================
 
 async function handleRequest(
   _senderPubkey: string,
@@ -69,10 +61,4 @@ async function handleRequest(
 await nostr.listen(handleRequest);
 logger.info("Ready");
 
-process.on("SIGINT", () => {
-  logger.info("Shutting down");
-  server.stop();
-  dealerWallet.close();
-  db.close();
-  process.exit(0);
-});
+setupShutdownHandler({ logger, server, wallet, db });

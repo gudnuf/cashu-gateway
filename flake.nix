@@ -65,6 +65,10 @@
 
           shellHook = ''
             ${pre-commit-check.shellHook}
+
+            alias alice='bun cli alice'
+            alias dealer='bun cli dealer'
+            alias gateway='bun cli gateway'
           '';
         };
       }

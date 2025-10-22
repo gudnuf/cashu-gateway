@@ -39,7 +39,6 @@ export class NostrClient {
     const relay = await this.ensureConnected();
     relay.subscribe([filter], {
       onevent: callback,
-      oneose: () => this.logger?.debug("Subscription established"),
     });
   }
 
@@ -61,7 +60,6 @@ export class NostrClient {
     );
 
     await this.publish(event);
-    this.logger?.info(`Request sent: ${request.method} -> ${recipientPubkey}`);
     return event.id;
   }
 
@@ -85,7 +83,6 @@ export class NostrClient {
     );
 
     await this.publish(event);
-    this.logger?.info(`Response sent to ${recipientPubkey}`);
   }
 
   async requestAndWaitForResponse<M extends Methods>(
@@ -113,7 +110,6 @@ export class NostrClient {
             const decrypted = await this.decrypt(event.pubkey, event.content);
             const response = JSON.parse(decrypted) as ResponseForMethod<M>;
             clearTimeout(timer);
-            this.logger?.info(`Response received from ${event.pubkey}`);
             resolve(response);
           } catch (error) {
             this.logger?.error(`Failed to process response: ${error}`);

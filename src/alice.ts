@@ -1,42 +1,28 @@
-import { Database } from "bun:sqlite";
-import { mkdirSync } from "node:fs";
 import { getEncodedToken, type Token } from "@cashu/cashu-ts";
 import { parseBolt11Invoice } from "./bolt11";
-import {
-  type BaseCommandContext,
-  type CommandRegistry,
-  createBaseCommands,
-  createCliServer,
-  createCommandHandlerFromRegistry,
-  mergeCommandRegistries,
-} from "./cli";
+import type { BaseCommandContext, CommandRegistry } from "./cli";
 import { getAliceConfig } from "./config";
-import { Keys } from "./keys";
-import { NamedLogger } from "./logger";
-import { NostrClient } from "./nostr";
+import type { NostrClient } from "./nostr";
+import { initializeService, setupShutdownHandler, startCliServer } from "./service";
 import type { InfoRequest, PayInvoiceRequest } from "./types";
-import { Wallet } from "./wallet";
 
-const logger = new NamedLogger("Alice");
+// ============================================================================
+// Alice Service - Lightning Payment Client
+// ============================================================================
+// Alice initiates Lightning payments through a gateway using HTLC-locked
+// Cashu tokens. She creates HTLC tokens locked to payment hashes and sends
+// them to the gateway over Nostr for payment execution.
 
 const config = getAliceConfig();
 
-const aliceKeys = new Keys(config.mnemonic);
-logger.info(`Public key: ${aliceKeys.getPublicKeyHex()}`);
-
-mkdirSync("./data", { recursive: true });
-
-const db = new Database("./data/alice.db", { create: true });
-
-const aliceWallet = new Wallet({
-  mintUrl: config.mintUrl,
-  db,
+const { wallet, keys, logger, nostr, db } = await initializeService({
   name: "Alice",
+  mintUrl: config.mintUrl,
+  relayUrl: config.relayUrl,
+  mnemonic: config.mnemonic,
+  dbPath: "./data/alice.db",
+  port: 3001,
 });
-
-await aliceWallet.initialize();
-
-const nostr = new NostrClient(aliceKeys, config.relayUrl, logger);
 
 type AliceCommandContext = BaseCommandContext & {
   nostr: NostrClient;
@@ -87,11 +73,8 @@ async function handlePayThroughGateway(
   }
 
   context.logger.info(`Paying invoice for ${amountSat} sats`);
-  context.logger.info(`Payment hash: ${decoded.paymentHash}`);
-  context.logger.debug("Decoded invoice:", { decoded });
 
   try {
-    context.logger.info("Creating HTLC-locked token...");
     const result = await context.wallet.sendHTLC(
       amountSat,
       decoded.paymentHash,
@@ -132,7 +115,6 @@ async function handlePayThroughGateway(
     }
 
     context.logger.info("Payment completed successfully!");
-    context.logger.debug("Gateway response:", { result: response.result });
 
     return {
       success: true,
@@ -217,27 +199,21 @@ function createAliceCommands(): CommandRegistry<AliceCommandContext> {
   return commands;
 }
 
-const baseCommands = createBaseCommands();
+// Setup CLI server with Alice-specific commands
 const aliceCommands = createAliceCommands();
-const allCommands = mergeCommandRegistries(baseCommands, aliceCommands);
-
 const commandContext: AliceCommandContext = {
-  wallet: aliceWallet,
-  keys: aliceKeys,
+  wallet,
+  keys,
   logger,
   nostr,
   config,
 };
 
-const commandHandler = createCommandHandlerFromRegistry(allCommands, commandContext);
-
-const PORT = 3001;
-const server = createCliServer(PORT, logger, commandHandler);
-
-process.on("SIGINT", () => {
-  logger.info("Shutting down");
-  server.stop();
-  aliceWallet.close();
-  db.close();
-  process.exit(0);
+const { server } = startCliServer({
+  port: 3001,
+  logger,
+  baseContext: commandContext,
+  customCommands: aliceCommands,
 });
+
+setupShutdownHandler({ logger, server, wallet, db });

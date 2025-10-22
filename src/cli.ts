@@ -144,18 +144,51 @@ function parseArguments<TContext>(
   return { success: true, parsed };
 }
 
+function generateHelp(registry: CommandRegistry<unknown>): string {
+  const commands = Array.from(registry.entries());
+
+  let helpText = `${COLORS.bold}Available Commands:${COLORS.reset}\n\n`;
+
+  for (const [name, def] of commands) {
+    const usage = def.args
+      .map((arg) => (arg.optional ? `[${arg.name}]` : `<${arg.name}>`))
+      .join(" ");
+
+    const commandLine = usage ? `${name} ${usage}` : name;
+    helpText += `  ${COLORS.cyan}${commandLine}${COLORS.reset}\n`;
+    helpText += `    ${def.description}\n`;
+
+    if (def.args.length > 0) {
+      for (const arg of def.args) {
+        const optionalLabel = arg.optional ? " (optional)" : "";
+        helpText += `    ${COLORS.gray}  ${arg.name}:${COLORS.reset} ${arg.description}${optionalLabel}\n`;
+      }
+    }
+    helpText += "\n";
+  }
+
+  return helpText;
+}
+
 export function createCommandHandlerFromRegistry<TContext>(
   registry: CommandRegistry<TContext>,
   context: TContext
 ): CommandHandler {
   return async (command: string, args: string[]): Promise<CommandResponse> => {
+    if (command === "help" || command === "--help") {
+      return {
+        success: true,
+        message: generateHelp(registry as CommandRegistry<unknown>),
+      };
+    }
+
     const commandDef = registry.get(command);
 
     if (!commandDef) {
       const availableCommands = Array.from(registry.keys()).join(", ");
       return {
         success: false,
-        error: `Unknown command: ${command}. Available commands: ${availableCommands}`,
+        error: `Unknown command: ${command}. Available commands: ${availableCommands}. Use 'help' to see detailed usage.`,
       };
     }
 
@@ -182,7 +215,6 @@ export function createCommandHandlerFromRegistry<TContext>(
 export function createBaseCommands(): CommandRegistry<BaseCommandContext> {
   const commands: CommandRegistry<BaseCommandContext> = new Map();
 
-  // balance command
   commands.set("balance", {
     description: "Get wallet balance",
     args: [],
@@ -196,7 +228,7 @@ export function createBaseCommands(): CommandRegistry<BaseCommandContext> {
     },
   });
 
-  commands.set("receive", {
+  commands.set("receive-cashu", {
     description: "Receive a Cashu token",
     args: [
       {
@@ -216,7 +248,7 @@ export function createBaseCommands(): CommandRegistry<BaseCommandContext> {
     },
   });
 
-  commands.set("pk", {
+  commands.set("pubkey", {
     description: "Get public key",
     args: [],
     handler: async (context) => {
@@ -262,8 +294,6 @@ export function createCliServer(port: number, logger: NamedLogger, commandHandle
         if (req.method === "POST" && url.pathname === "/command") {
           const body = (await req.json()) as CommandRequest;
           const { command, args } = body;
-
-          logger.debug(`Received command: ${command} with args: ${args}`);
 
           const result = await commandHandler(command, args);
 
@@ -313,15 +343,21 @@ async function sendCommand(service: ServiceName, command: string, args: string[]
     if (response.ok && data.success) {
       const serviceName = `${serviceColor}${service}${COLORS.reset}`;
       const checkmark = `${COLORS.green}✓${COLORS.reset}`;
-      console.log(`${checkmark} ${serviceName} ${COLORS.gray}→${COLORS.reset} ${data.message}`);
 
-      if (data.data) {
-        console.log(`${COLORS.gray}╭─ Response Data${COLORS.reset}`);
-        const dataStr = JSON.stringify(data.data, null, 2);
-        for (const line of dataStr.split("\n")) {
-          console.log(`${COLORS.gray}│${COLORS.reset} ${line}`);
+      if (command === "help" || command === "--help") {
+        console.log(`${COLORS.bold}${serviceName} Commands:${COLORS.reset}\n`);
+        console.log(data.message);
+      } else {
+        console.log(`${checkmark} ${serviceName} ${COLORS.gray}→${COLORS.reset} ${data.message}`);
+
+        if (data.data) {
+          console.log(`${COLORS.gray}╭─ Response Data${COLORS.reset}`);
+          const dataStr = JSON.stringify(data.data, null, 2);
+          for (const line of dataStr.split("\n")) {
+            console.log(`${COLORS.gray}│${COLORS.reset} ${line}`);
+          }
+          console.log(`${COLORS.gray}╰─${COLORS.reset}`);
         }
-        console.log(`${COLORS.gray}╰─${COLORS.reset}`);
       }
     } else {
       const serviceName = `${serviceColor}${service}${COLORS.reset}`;
@@ -345,17 +381,23 @@ async function sendCommand(service: ServiceName, command: string, args: string[]
 
 function showUsage() {
   console.log(`
-${COLORS.bold}Usage:${COLORS.reset} bun cli <service> <command> [args...]
+${COLORS.bold}Usage:${COLORS.reset} <service> <command> [args...]
 
 ${COLORS.bold}Services:${COLORS.reset}
-  ${SERVICE_COLORS.alice}alice${COLORS.reset}     - Alice service (port 3001)
-  ${SERVICE_COLORS.dealer}dealer${COLORS.reset}    - Dealer service (port 3002)
-  ${SERVICE_COLORS.gateway}gateway${COLORS.reset}   - Gateway service (port 3003)
+  ${SERVICE_COLORS.alice}alice${COLORS.reset}     - Lightning payment client (port 3001)
+  ${SERVICE_COLORS.dealer}dealer${COLORS.reset}    - Token distribution service (port 3002)
+  ${SERVICE_COLORS.gateway}gateway${COLORS.reset}   - Lightning payment gateway (port 3003)
+
+${COLORS.bold}Get Help:${COLORS.reset}
+  ${COLORS.gray}$${COLORS.reset} alice --help
+  ${COLORS.gray}$${COLORS.reset} dealer --help
+  ${COLORS.gray}$${COLORS.reset} gateway --help
 
 ${COLORS.bold}Examples:${COLORS.reset}
-  ${COLORS.gray}$${COLORS.reset} bun cli ${SERVICE_COLORS.alice}alice${COLORS.reset} receive
-  ${COLORS.gray}$${COLORS.reset} bun cli ${SERVICE_COLORS.dealer}dealer${COLORS.reset} <command>
-  ${COLORS.gray}$${COLORS.reset} bun cli ${SERVICE_COLORS.gateway}gateway${COLORS.reset} <command>
+  ${COLORS.gray}$${COLORS.reset} alice balance
+  ${COLORS.gray}$${COLORS.reset} alice pay <invoice> <gateway_pubkey>
+  ${COLORS.gray}$${COLORS.reset} dealer receive-cashu <token>
+  ${COLORS.gray}$${COLORS.reset} gateway nwc-info
 `);
   process.exit(1);
 }
@@ -364,19 +406,25 @@ ${COLORS.bold}Examples:${COLORS.reset}
 if (import.meta.main) {
   const args = process.argv.slice(2);
 
-  if (args.length < 2) {
+  if (args.length < 1) {
     showUsage();
   }
 
   const service = args[0] as ServiceName;
-  const command = args[1];
-  const commandArgs = args.slice(2);
 
   if (!SERVICE_PORTS[service]) {
     const cross = `${COLORS.red}✗${COLORS.reset}`;
     console.error(`${cross} ${COLORS.red}Unknown service:${COLORS.reset} ${service}\n`);
     showUsage();
   }
+
+  if (args.length < 2 || args[1] === "--help" || args[1] === "help") {
+    await sendCommand(service, "help");
+    process.exit(0);
+  }
+
+  const command = args[1];
+  const commandArgs = args.slice(2);
 
   await sendCommand(service, command, commandArgs);
 }
