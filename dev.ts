@@ -4,9 +4,9 @@ import { spawn } from "bun";
 console.log("Starting all processes...\n");
 
 const processes = [
-  { name: "Alice", file: "src/alice.ts" },
-  { name: "Gateway", file: "src/gateway.ts" },
-  { name: "Dealer", file: "src/dealer.ts" },
+  { name: "Alice", file: "src/alice/index.ts" },
+  { name: "Gateway", file: "src/gateway/index.ts" },
+  { name: "Dealer", file: "src/dealer/index.ts" },
 ];
 
 const procs: Subprocess[] = [];
@@ -16,6 +16,10 @@ for (const proc of processes) {
     cmd: ["bun", "run", proc.file],
     stdout: "pipe",
     stderr: "pipe",
+    env: {
+      ...process.env,
+      SHOW_SERVICE_NAME_IN_LOGS: "true",
+    },
   });
 
   procs.push(bunProc);

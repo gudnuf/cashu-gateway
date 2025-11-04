@@ -1,6 +1,6 @@
 import { type Event, type Filter, finalizeEvent, nip04, Relay } from "nostr-tools";
-import type { Keys } from "./keys";
-import type { NamedLogger } from "./logger";
+import type { Keys } from "./lib/keys";
+import { logger, shortenKey } from "./lib/logger";
 import type { Methods, Request, RequestForMethod, Response, ResponseForMethod } from "./types";
 
 type RequestHandler = (senderPubkey: string, request: Request) => Promise<Response | undefined>;
@@ -8,21 +8,18 @@ type RequestHandler = (senderPubkey: string, request: Request) => Promise<Respon
 export class NostrClient {
   private keys: Keys;
   private relay?: Relay;
-  private logger?: NamedLogger;
 
   constructor(
     keys: Keys,
-    private relayUrl: string,
-    logger?: NamedLogger
+    private relayUrl: string
   ) {
     this.keys = keys;
-    this.logger = logger;
   }
 
   private async ensureConnected(): Promise<Relay> {
     if (!this.relay) {
       this.relay = await Relay.connect(this.relayUrl);
-      this.logger?.info(`Connected to ${this.relayUrl}`);
+      logger.info(`Connected to ${this.relayUrl}`);
     }
     return this.relay;
   }
@@ -112,7 +109,7 @@ export class NostrClient {
             clearTimeout(timer);
             resolve(response);
           } catch (error) {
-            this.logger?.error(`Failed to process response: ${error}`);
+            logger.error(`Failed to process response: ${error}`);
           }
         }
       );
@@ -134,18 +131,16 @@ export class NostrClient {
           const message = JSON.parse(decrypted);
 
           if (message.method) {
-            this.logger?.info(`Request received: ${message.method} from ${event.pubkey}`);
+            logger.info(`Request received: ${message.method} from ${shortenKey(event.pubkey)}`);
             const response = await handler(event.pubkey, message as Request);
             if (response) {
               await this.sendResponse(event.pubkey, event.id, response);
             }
           }
         } catch (error) {
-          this.logger?.error(`Failed to process request: ${error}`);
+          logger.error(`Failed to process request: ${error}`);
         }
       }
     );
-
-    this.logger?.info("Listening for requests");
   }
 }

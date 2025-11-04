@@ -1,8 +1,8 @@
 #!/usr/bin/env bun
 
 import { getDecodedToken } from "@cashu/cashu-ts";
-import type { Keys } from "./keys";
-import type { NamedLogger } from "./logger";
+import type { Keys } from "./lib/keys";
+import { logger } from "./lib/logger";
 import type { Wallet } from "./wallet";
 
 export type ServiceName = "alice" | "dealer" | "gateway";
@@ -37,7 +37,6 @@ export type CommandDef<TContext = unknown> = {
 export type BaseCommandContext = {
   wallet: Wallet;
   keys: Keys;
-  logger: NamedLogger;
 };
 
 export type CommandRegistry<TContext = unknown> = Map<string, CommandDef<TContext>>;
@@ -280,11 +279,10 @@ export function mergeCommandRegistries<TContext>(
 /**
  * Creates a CLI command server that listens for commands over HTTP
  * @param port - Port to listen on
- * @param logger - Logger instance for the service
  * @param commandHandler - Function that handles command execution
  * @returns Bun server instance
  */
-export function createCliServer(port: number, logger: NamedLogger, commandHandler: CommandHandler) {
+export function createCliServer(port: number, commandHandler: CommandHandler) {
   const server = Bun.serve({
     port,
     async fetch(req) {
@@ -316,8 +314,6 @@ export function createCliServer(port: number, logger: NamedLogger, commandHandle
       }
     },
   });
-
-  logger.info(`Command server listening on port ${port}`);
 
   return server;
 }

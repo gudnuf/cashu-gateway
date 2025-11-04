@@ -1,16 +1,16 @@
 import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
-import type { BaseCommandContext, CommandHandler, CommandRegistry } from "./cli";
+import type { BaseCommandContext, CommandHandler, CommandRegistry } from "../cli";
 import {
   createBaseCommands,
   createCliServer,
   createCommandHandlerFromRegistry,
   mergeCommandRegistries,
-} from "./cli";
+} from "../cli";
+import { NostrClient } from "../nostr";
+import { Wallet } from "../wallet";
 import { Keys } from "./keys";
-import { NamedLogger } from "./logger";
-import { NostrClient } from "./nostr";
-import { Wallet } from "./wallet";
+import { logger } from "./logger";
 
 export type ServiceConfig = {
   name: string;
@@ -24,7 +24,6 @@ export type ServiceConfig = {
 export type ServiceContext = {
   wallet: Wallet;
   keys: Keys;
-  logger: NamedLogger;
   nostr: NostrClient;
   db: Database;
 };
@@ -33,17 +32,13 @@ export type ServiceContext = {
  * Initialize common service components (database, keys, wallet, nostr)
  */
 export async function initializeService(config: ServiceConfig): Promise<ServiceContext> {
-  const logger = new NamedLogger(config.name);
+  logger.setServiceName(config.name.toLowerCase());
 
-  // Setup database
   mkdirSync("./data", { recursive: true });
   const db = new Database(config.dbPath, { create: true });
 
-  // Setup keys
   const keys = new Keys(config.mnemonic);
-  logger.info(`Public key: ${keys.getPublicKeyHex()}`);
 
-  // Setup wallet
   const wallet = new Wallet({
     mintUrl: config.mintUrl,
     db,
@@ -51,22 +46,17 @@ export async function initializeService(config: ServiceConfig): Promise<ServiceC
   });
   await wallet.initialize();
 
-  // Setup nostr client
-  const nostr = new NostrClient(keys, config.relayUrl, logger);
+  const nostr = new NostrClient(keys, config.relayUrl);
 
-  return { wallet, keys, logger, nostr, db };
+  return { wallet, keys, nostr, db };
 }
 
 export type CliServerConfig<TContext extends BaseCommandContext> = {
   port: number;
-  logger: NamedLogger;
   baseContext: BaseCommandContext;
   customCommands?: CommandRegistry<TContext>;
 };
 
-/**
- * Start CLI server with base commands and optional custom commands
- */
 export function startCliServer<TContext extends BaseCommandContext>(
   config: CliServerConfig<TContext>
 ): { server: ReturnType<typeof Bun.serve>; handler: CommandHandler } {
@@ -81,24 +71,25 @@ export function startCliServer<TContext extends BaseCommandContext>(
   } as TContext;
 
   const commandHandler = createCommandHandlerFromRegistry(allCommands, commandContext);
-  const server = createCliServer(config.port, config.logger, commandHandler);
+  const server = createCliServer(config.port, commandHandler);
+
+  logger.info(`Server started on port ${config.port}`);
 
   return { server, handler: commandHandler };
 }
 
 export type ShutdownConfig = {
-  logger: NamedLogger;
+  serviceName: string;
   server: ReturnType<typeof Bun.serve>;
   wallet: Wallet;
   db: Database;
+  cleanup?: () => void;
 };
 
-/**
- * Setup graceful shutdown handler
- */
 export function setupShutdownHandler(config: ShutdownConfig): void {
   process.on("SIGINT", () => {
-    config.logger.info("Shutting down");
+    logger.info("Shutting down");
+    config.cleanup?.();
     config.server.stop();
     config.wallet.close();
     config.db.close();
