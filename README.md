@@ -1,12 +1,12 @@
 # Cashu Gateway
 
-> This basically works except you currently have to trust the gateway way because it uses NWC which does not support hodling invoices. All of the messages and spending conditions are implemented to demonstrate the protocol, but when receiving through a gateway a different preimage from what is specified by Alice will be used. Future iterations of the gateway will hodl invoices until the dealer reveals the preimage.
-
 ## Overview
 
 This project implements a gateway that bridges Cashu and the Lightning Network. Gateways enable users to send and receive lightning payments without talking to their mint.
 
 See [INBOUND](./INBOUND.md) for an idea of how receiving through a gateway works.
+
+> This is just to demonstrate the protocol for cashu gateways that is being actively developed. Also, dont trust the gateway way because it uses NWC which does not support hodling invoices. All of the messages and spending conditions are implemented to demonstrate the protocol, but when receiving through a gateway a different preimage from what is specified by Alice will be used. Future iterations of the gateway will hodl invoices until the dealer reveals the preimage.
 
 ## Development
 
