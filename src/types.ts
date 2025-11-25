@@ -62,7 +62,7 @@ export type MethodMap = {
     result: { success: boolean; message: string };
   };
   request_dealer_fee: {
-    params: { preimageHash: string; amount: number };
+    params: { preimage: string; preimageHash: string; amount: number };
     result: {
       success: boolean;
       feeAmount: number;

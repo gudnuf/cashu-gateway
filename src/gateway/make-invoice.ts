@@ -1,12 +1,13 @@
 import { getEncodedToken, type Proof, type SerializedBlindedMessage } from "@cashu/cashu-ts";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
+import type { WalletConnect } from "applesauce-wallet-connect";
 import { decodeBolt11 } from "../lib/bolt11";
 import type { Keys } from "../lib/keys";
 import { logger } from "../lib/logger";
+import { signSigAllMessage } from "../lib/p2pk-sigall";
 import type { ProofStateSubscriptionManager } from "../lib/proof-state-subscription-manager";
 import type { NostrClient } from "../nostr";
-import { signSigAllMessage } from "../p2pk-sigall";
 import type { Wallet } from "../wallet";
 
 // ============================================================================
@@ -46,8 +47,8 @@ export class MakeInvoiceHandler {
     private keys: Keys,
     private nostr: NostrClient,
     private proofStateManager: ProofStateSubscriptionManager,
-    private nwcWallet: any,
-    private nwcListener: any,
+    private nwcWallet: WalletConnect,
+    private nwcListener: WalletConnect,
     private mintUrl: string
   ) {
     this.setupPaymentListener();

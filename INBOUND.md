@@ -1,31 +1,26 @@
-# Gateway Receive Protocol Specification
-
-The following was generated based on the current code. It will give you a good idea of the message structure and cashu secrets that are used, but this should not be considered the final word. Rely on the code for now to see how it works exactly.
+# Receiving Ecash through a LN Gateway
 
 ## Overview
 
-Three-party protocol for receiving Lightning payments through a gateway using Cashu ecash tokens with HTLC and P2PK locking mechanisms.
-
+Three-party protocol for receiving payments through a gateway.
 **Actors:**
 
-- **Alice**: Receiver who wants to receive Lightning sats as ecash
+- **Alice**: Receiver who wants to receive a LN payment as ecash
 - **Gateway**: Lightning node operator that creates invoices and locks funds in HTLCs
-- **Dealer**: Intermediary that swaps HTLCs for ecash, claims routing fees
-
-**Fee Structure:** Dealer charges 2 sat flat fee per receive operation
+- **Dealer**: Intermediary that swaps HTLCs for ecash, charges a fee to sell the preimage to the gateway
 
 ---
 
 ## Protocol Flow Summary
 
-1. **Alice → Dealer:** Request fee blinded messages
-2. **Alice → Gateway:** Send aggregated blinded messages (dealer + hers), get HODL invoice
-3. **External:** Invoice gets paid, gateway holds payment (doesn't settle)
-4. **Gateway → Mint:** Create HTLC token with SIG_ALL (without preimage)
+1. **Alice → Dealer:** Request fee blinded messages (sends preimage to dealer)
+2. **Alice → Gateway:** Send aggregated blinded messages (dealer + hers), get invoice
+3. **External:** Invoice gets paid, gateway holds payment
+4. **Gateway → Mint:** Create HTLC token with SIG_ALL committing to Alice and Dealer outputs
 5. **Gateway → Dealer:** Forward HTLC for swap
-6. **Dealer:** Add preimage, swap HTLC with mint, claim fee, return preimage to gateway
+6. **Dealer:** Swaps HTLC using preimage from Alice, revealing preimage to gateway
 7. **Gateway:** Settle invoice with preimage
-8. **Dealer → Alice:** Forward Alice's blinded signatures
+8. **Dealer → Alice:** Forward Alice's blinded signatures (optional, Alice could restore when HTLC is spent)
 9. **Alice:** Unblind signatures, receive proofs
 
 ---
@@ -34,7 +29,7 @@ Three-party protocol for receiving Lightning payments through a gateway using Ca
 
 ### 1. Alice → Dealer: `request_dealer_fee`
 
-Alice requests blinded messages for dealer's fee.
+Alice requests blinded messages for dealer's fee and sends the preimage.
 
 **Request:**
 
@@ -42,6 +37,7 @@ Alice requests blinded messages for dealer's fee.
 {
   "method": "request_dealer_fee",
   "params": {
+    "preimage": "<32-byte hex>",
     "preimageHash": "<32-byte hex>",
     "amount": 21
   }
@@ -66,8 +62,8 @@ Alice requests blinded messages for dealer's fee.
 **Dealer Action:**
 
 - Creates P2PK blinded messages (2 sats) locked to **Dealer's pubkey**
-- Secret format: `["P2PK", {"nonce": "...", "data": "02<dealer_pubkey>"}]`
-- Stores `PendingDealerFee` with outputData for later unblinding
+- Secret format: `["P2PK", {"nonce": "...", "data": "<dealer_pubkey>"}]`
+- Stores preimage and outputData for later unblinding
 
 ---
 
@@ -92,7 +88,7 @@ Alice sends aggregated blinded messages (dealer fee + her own) to gateway.
       { "amount": 4, "B_": "...", "id": "..." },
       { "amount": 16, "B_": "...", "id": "..." }
     ],
-    "dealerPubkey": "4bfa7578..."
+    "dealerPubkey": "024bfa7578..."
   }
 }
 ```
@@ -100,7 +96,8 @@ Alice sends aggregated blinded messages (dealer fee + her own) to gateway.
 **Alice's Blinded Messages:**
 
 - P2PK locked to **Alice's pubkey**
-- Secret format: `["P2PK", {"nonce": "...", "data": "02<alice_pubkey>"}]`
+  > TODO: Does this need to be P2PK locked? It should be fine if the dealer only knows B\_
+- Secret format: `["P2PK", {"nonce": "...", "data": "<alice_pubkey>"}]`
 - Alice stores outputData locally to unblind signatures later
 
 **Response:**
@@ -121,7 +118,6 @@ Alice sends aggregated blinded messages (dealer fee + her own) to gateway.
 
 - Creates HODL invoice locked to Alice's `preimageHash`
 - Stores `PendingReceiveRequest` with blinded messages
-- **Does NOT create HTLC yet** - waits for payment
 
 ---
 
@@ -131,7 +127,7 @@ Lightning invoice gets paid but gateway holds it without settling.
 
 **Gateway Detection:**
 
-- Lightning node receives payment but doesn't settle (HODL invoice)
+- Lightning node receives payment but can't settle without the preimage
 - Gateway looks up pending request by payment hash
 
 ---
@@ -144,15 +140,16 @@ Gateway creates HTLC token locked to the invoice's payment hash (Alice's origina
 
 ```json
 [
-  "P2PK",
+  "HTLC",
   {
+    "data": "<preimage_hash>",
     "nonce": "<random 32-byte hex>",
-    "data": "02<gateway_pubkey>",
     "tags": [
       ["sigflag", "SIG_ALL"],
-      ["preimage_hash", "<payment_hash>"],
+      ["pubkeys", "<gateway_pubkey>"],
+      ["n_sigs", "1"]
       ["locktime", "<expiry_unix_sec>"],
-      ["refund", "02<gateway_pubkey>"],
+      ["refund", "<gateway_pubkey>"],
       ["n_sigs_refund", "1"]
     ]
   }
@@ -161,9 +158,9 @@ Gateway creates HTLC token locked to the invoice's payment hash (Alice's origina
 
 **Key Properties:**
 
-- Primary locking pubkey: Gateway's pubkey
+- `data`: Invoice payment hash / preimage hash (dealer must provide preimage to spend)
+- `pubkeys` tag: Gateway's pubkey that must sign with SIG_ALL
 - `SIG_ALL` flag: Commits to both input proofs AND output blinded messages
-- `preimage_hash`: Invoice payment hash (dealer must provide preimage to spend)
 - `refund`: Gateway can reclaim after locktime expires
 
 **Gateway Signs SIG_ALL:**
@@ -173,7 +170,7 @@ message = secret_0 || ... || secret_n || B_0 || ... || B_m
 signature = schnorr.sign(SHA256(message), gateway_privkey)
 ```
 
-**Witnessed HTLC Token:**
+**Witnessed HTLC Token (no preimage):**
 
 ```json
 {
@@ -206,17 +203,19 @@ Gateway forwards HTLC token to dealer for swap.
 {
   "method": "swap_htlc",
   "params": {
-    "htlcToken": "cashuA<encoded_token>",
+    "htlcToken": "cashuB<encoded_token>",
     "blindedMessages": [
-      /* same 23 sats of blinded messages */
+      ...
     ],
     "requestPreimageHash": "<original from alice>",
-    "alicePubkey": "2dcb27f6..."
+    "alicePubkey": "022dcb27f6..." // TODO: remove? The dealer should already know this
   }
 }
 ```
 
 **Response:**
+
+> TODO: Does the dealer need to send a response to the gateway? Or is swapping enough?
 
 ```json
 {
@@ -234,15 +233,15 @@ Gateway forwards HTLC token to dealer for swap.
 
 1. **Add preimage to HTLC witness:**
    - Dealer must provide the preimage that matches the `preimage_hash` tag
+     > Question: How do mint validate sig all in this case with the preimage? Preimage must be required on all, but what about the signature?
    - Updates each proof's witness: `{"signatures": ["<gateway_sig>"], "preimage": "<preimage>"}`
 
 2. **Swap HTLC with mint:**
-   - Submits HTLC token + all 23 blinded messages to mint's `/v1/swap` endpoint
+   - Submits HTLC token + blinded messages to mint's `/v1/swap` endpoint
    - Mint validates:
      - SIG_ALL signature is valid for inputs + outputs
      - Preimage in witness hashes to `preimage_hash` tag
      - Gateway's signature commits to exact output blinded messages
-   - Mint returns 23 blinded signatures
 
 3. **Split signatures:**
    - First 2 blinded sigs → Dealer (fee)
@@ -250,18 +249,20 @@ Gateway forwards HTLC token to dealer for swap.
 
 4. **Unblind dealer's signatures:**
    - Uses stored `PendingDealerFee.outputData` secrets/blinding factors
+     > TODO: again, do we need P2PK here?
    - Creates proofs locked to Dealer's P2PK
-   - Saves to dealer's database
 
-5. **Return preimage to gateway** (in response)
+> TODO: If we decide to keep this, also return the Y values the gateway could use 5. **Return preimage to gateway** (in response)
 
 6. **Forward Alice's signatures to Alice** (next step)
+
+> TODO: consider how the dealer blinded messages are being created and
 
 ---
 
 ### 6. Gateway Settles Invoice
 
-Gateway receives preimage from dealer's response and settles the HODL invoice.
+Gateway receives preimage from the mint and settles the HODL invoice.
 
 **Gateway Action:**
 
@@ -272,7 +273,7 @@ Gateway receives preimage from dealer's response and settles the HODL invoice.
 
 ---
 
-### 7. Dealer → Alice: `blinded_signatures`
+### 7. Dealer → Alice: `blinded_signatures` (optional)
 
 Dealer sends Alice's portion of blinded signatures.
 
@@ -324,8 +325,7 @@ Dealer sends Alice's portion of blinded signatures.
   "P2PK",
   {
     "nonce": "<random>",
-    "data": "02<dealer_pubkey>",
-    "tags": [["sigflag", "SIG_INPUTS"]]
+    "data": "<dealer_pubkey>"
   }
 ]
 ```
@@ -340,8 +340,7 @@ Dealer sends Alice's portion of blinded signatures.
   "P2PK",
   {
     "nonce": "<random>",
-    "data": "02<alice_pubkey>",
-    "tags": [["sigflag", "SIG_INPUTS"]]
+    "data": "<alice_pubkey>"
   }
 ]
 ```
@@ -353,15 +352,15 @@ Dealer sends Alice's portion of blinded signatures.
 
 ```json
 [
-  "P2PK",
+  "HTLC",
   {
+    "data": "<invoice_payment_hash>",
     "nonce": "<random>",
-    "data": "02<gateway_pubkey>",
     "tags": [
       ["sigflag", "SIG_ALL"],
-      ["preimage_hash", "<invoice_payment_hash>"],
+      ["pubkeys", "<gateway_pubkey>"],
       ["locktime", "<expiry_unix_sec>"],
-      ["refund", "02<gateway_pubkey>"],
+      ["refund", "<gateway_pubkey>"],
       ["n_sigs_refund", "1"]
     ]
   }
@@ -369,34 +368,15 @@ Dealer sends Alice's portion of blinded signatures.
 ```
 
 - Locked to invoice payment hash (dealer must provide preimage)
-- SIG_ALL: Gateway signature commits to exact outputs
+- SIG*ALL: Gateway signature commits to exact outputs (dealer fee `B*`s and Alice `B\_`s)
 - Refund path: Gateway can reclaim after locktime
 
 ---
 
-## Security Properties
+## Things to consider
 
-1. **Atomic Swap:** Gateway's SIG_ALL signature binds HTLC inputs to exact output blinded messages, preventing dealer from swapping for different amounts
-
-2. **HODL Invoice Protection:** Gateway doesn't settle Lightning payment until dealer proves HTLC was swapped by providing the preimage
-
-3. **Payment Proof:** Dealer must provide valid preimage to spend HTLC, which proves:
-   - Lightning payment was successful
-   - HTLC was actually swapped with mint (dealer couldn't get preimage otherwise)
-
-4. **No Trust Required:**
-   - Gateway can't steal: Must lock funds in HTLC before settling invoice
-   - Dealer can't steal: HTLC commits to exact blinded message outputs via SIG_ALL
-   - Alice gets exactly what she requested (minus fee)
-
-5. **Refund Path:** Gateway can reclaim HTLC after locktime if dealer fails to swap
-
----
-
-## Key Implementation Details
-
-- **Transport:** Nostr NIP-04 encrypted messages between parties
-- **Dealer Fee:** Fixed 2 sats per receive operation
-- **Blinding:** Cashu blind signatures ensure mint cannot link Alice's proofs to the HTLC
-- **HODL Invoice:** Gateway holds invoice payment until dealer provides preimage by successfully swapping HTLC
-- **Preimage Flow:** Alice generates → Gateway locks invoice → Dealer spends HTLC → Gateway settles invoice
+- Does the dealer need to know Alice's secrets for the outputs she will receive? We say that Alice will create P2PK outputs, but that's probably not necessary?
+- The dealer and the gateway can collaborate in many ways if they know how to contact eachother. Unless there was dark magic, the dealer always has to know the preimage, so then there's nothing stopping the dealer and the gateway from running away with the money.
+  - Is there a way we can do this so that the gateway and the dealer are unaware of eachother?
+  - If we use nostr, then there's still nothing stopping a gateway from blasting out that they're looking for a specific preimage.
+  - We could make the dealer and/or the gateway create some sort of bond. We could make the gateway create the unsigned HTLC proofs first to give alice along with the invoice, but the gateway could just wait for this to expire while colluding with the dealer, then reclaim it. I guess this is the problem with bonds, they will have to expire when the invoice expires.

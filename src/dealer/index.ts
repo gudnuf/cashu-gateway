@@ -19,6 +19,7 @@ export type PendingDealerFee = {
   outputData: OutputDataLike[];
   amount: number;
   alicePubkey: string;
+  preimage: string;
   timestamp: number;
 };
 
@@ -65,11 +66,11 @@ async function handleRequest(
   }
 
   if (isRequestForMethod(request, "request_dealer_fee")) {
-    const { preimageHash, amount } = request.params ?? {};
-    if (!preimageHash || !amount) {
+    const { preimage, preimageHash, amount } = request.params ?? {};
+    if (!preimage || !preimageHash || !amount) {
       return createErrorResponse<"request_dealer_fee">(
         -32602,
-        "Usage: request_dealer_fee <preimageHash> <amount>"
+        "Usage: request_dealer_fee <preimage> <preimageHash> <amount>"
       );
     }
 
@@ -77,6 +78,7 @@ async function handleRequest(
       // Create dealer fee blinded messages
       const { pendingFee, blindedMessages } = requestDealerFee({
         alicePubkey: senderPubkey,
+        preimage,
         wallet,
         keys,
       });

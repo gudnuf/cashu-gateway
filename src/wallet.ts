@@ -319,32 +319,21 @@ export class Wallet {
         factory: (amount, keys) => {
           const tags: string[][] = [];
 
-          // Add sigflag if specified (defaults to SIG_INPUTS if not specified)
           if (config.sigflag) {
             tags.push(["sigflag", config.sigflag]);
           }
-
-          // Add pubkeys array if specified
           if (config.pubkeys && config.pubkeys.length > 0) {
             tags.push(["pubkeys", ...config.pubkeys]);
           }
-
-          // Add n_sigs if specified (must be a string per NUT-11)
           if (config.n_sigs !== undefined) {
             tags.push(["n_sigs", String(config.n_sigs)]);
           }
-
-          // Add locktime if specified (must be a string per NUT-11)
           if (config.locktime !== undefined) {
             tags.push(["locktime", String(config.locktime)]);
           }
-
-          // Add refund pubkeys array if specified
           if (config.refund && config.refund.length > 0) {
             tags.push(["refund", ...config.refund]);
           }
-
-          // Add n_sigs_refund if specified (must be a string per NUT-11)
           if (config.n_sigs_refund !== undefined) {
             tags.push(["n_sigs_refund", String(config.n_sigs_refund)]);
           }
@@ -409,14 +398,12 @@ export class Wallet {
    * @param amount - The amount in sats to create blinded messages for
    * @param pubkey - The public key to lock the blinded messages to
    * @param customSplit - Optional custom denomination split (e.g., [1, 2, 4, 8])
-   * @param label - Optional label for logging context (e.g., "Dealer fee", "Alice receive")
    * @returns Array of OutputDataLike objects containing blinded messages and secrets
    */
   createP2PKBlindedMessages(
     amount: number,
     pubkey: string,
-    customSplit?: number[],
-    label?: string
+    customSplit?: number[]
   ): OutputDataLike[] {
     const keyset = this.wallet.keyChain.getCheapestKeyset();
 
@@ -424,8 +411,8 @@ export class Wallet {
     const od = outputData[0];
     const secret = od.secret;
     const decodedSecret = new TextDecoder().decode(secret);
-    const context = label ? `${label} P2PK secret` : "P2PK secret";
-    logger.debug(`${context}:`, JSON.parse(decodedSecret));
+
+    logger.debug(`P2PK secret:`, JSON.parse(decodedSecret));
 
     return outputData;
   }
@@ -496,13 +483,11 @@ export class Wallet {
       const od = outputData[i];
       const sig = blindedSignatures[i];
 
-      // Get the keyset for this signature
       const keyset = this.wallet.keyChain.getKeyset(sig.id);
       if (!keyset) {
         throw new Error(`Keyset not found for id: ${sig.id}`);
       }
 
-      // Construct the proof using the output data's toProof method
       const proof = od.toProof(sig, keyset);
       proofs.push(proof);
     }

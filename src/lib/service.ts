@@ -73,7 +73,7 @@ export function startCliServer<TContext extends BaseCommandContext>(
   const commandHandler = createCommandHandlerFromRegistry(allCommands, commandContext);
   const server = createCliServer(config.port, commandHandler);
 
-  logger.info(`Server started on port ${config.port}`);
+  logger.info(`CLI server started on port ${config.port}`);
 
   return { server, handler: commandHandler };
 }

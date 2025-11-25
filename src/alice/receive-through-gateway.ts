@@ -59,6 +59,7 @@ export async function receiveThroughGateway(
     const dealerResponse = await nostr.requestAndWaitForResponse(dealerPublicKey, {
       method: "request_dealer_fee",
       params: {
+        preimage: bytesToHex(preimage),
         preimageHash: preimageHash,
         amount: amount,
       },
@@ -81,8 +82,7 @@ export async function receiveThroughGateway(
     const aliceOutputData = wallet.createP2PKBlindedMessages(
       amount,
       `02${alicePublicKey}`,
-      undefined,
-      "Alice receive"
+      undefined
     );
     const aliceBlindedMessages = aliceOutputData.map((od: OutputDataLike) => od.blindedMessage);
     logger.info(`Created ${aliceOutputData.length} blinded messages for ${amount} sats`);

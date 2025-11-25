@@ -1,6 +1,6 @@
 # Cashu Gateway
 
-**⚠️ Experimental** This basically works except you currently have to trust the gateway way because it uses NWC which does not support hodling invoices. All of the messages and spending conditions are implemented to demonstrate the protocol, but when receiving through a gateway a different preimage from what is specified by Alice will be used. Future iterations of the gateway will hodl invoices until the dealer reveals the preimage.
+> This basically works except you currently have to trust the gateway way because it uses NWC which does not support hodling invoices. All of the messages and spending conditions are implemented to demonstrate the protocol, but when receiving through a gateway a different preimage from what is specified by Alice will be used. Future iterations of the gateway will hodl invoices until the dealer reveals the preimage.
 
 ## Overview
 
@@ -15,12 +15,16 @@ This project runs three concurrent processes (Alice, Gateway, Dealer) that commu
 ```bash
 bun install
 
+# This is just to generate mnemonics for easy testing
 bun run setup-env
 ```
 
 ### Usage
 
 Modify the .env file that was created when you ran `setup-env`. NOTE that this requires an NWC that supports NIP-47 notifications.
+
+> [!TIP]
+> If you use Nix, the flake automatically sets up aliases so you can call service names directly (e.g., `alice`, `dealer`, `gateway`) instead of using `bun cli`. Nix doesn't save you from waiting for node to build though.
 
 If all services are started you can now test it out by first giving the gateway some ecash, then Alice can receive ecash from the dealer, and finally pay out through the gateway.
 
