@@ -10,6 +10,7 @@
 //! and accessed via the `ldk-cli` tool.
 
 pub mod config;
+pub mod ecash;
 pub mod ldk;
 pub mod lightning;
 

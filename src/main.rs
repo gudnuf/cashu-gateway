@@ -12,6 +12,7 @@ use tracing::info;
 use tracing_subscriber::EnvFilter;
 
 use cashu_gateway::config::GatewayConfig;
+use cashu_gateway::ecash::EcashWallet;
 use cashu_gateway::ldk::LdkLightningBackend;
 use cashu_gateway::lightning::LightningBackend;
 use cashu_gateway::{GatewayInfo, MakeInvoiceRequest, MakeInvoiceResponse};
@@ -71,6 +72,12 @@ async fn main() -> Result<()> {
 
             let backend = Arc::new(LdkLightningBackend::setup(&config).await?);
 
+            // Initialize ecash wallet
+            info!(mint_url = %config.mint_url, storage_dir = %config.ecash_storage_dir, "Initializing ecash wallet");
+            let ecash_wallet = EcashWallet::new(&config.mint_url, &config.ecash_storage_dir).await?;
+            let balance = ecash_wallet.get_balance().await?;
+            info!(mint_url = %config.mint_url, balance_sats = balance, "Ecash wallet ready");
+
             // Public gateway API
             let api_port = config.api_port;
             let public_app = Router::new()
@@ -102,6 +109,9 @@ async fn main() -> Result<()> {
                 }
                 _ = shutdown => {}
             }
+
+            drop(ecash_wallet);
+            info!("Ecash wallet shut down");
 
             backend.shutdown()?;
             Ok(())

@@ -24,6 +24,7 @@ const DEFAULT_NETWORK: &str = "regtest";
 const DEFAULT_ESPLORA_URL_REGTEST: &str = "http://127.0.0.1:3002";
 const DEFAULT_ESPLORA_URL_TESTNET: &str = "https://blockstream.info/testnet/api";
 const DEFAULT_RGS_URL_TESTNET: &str = "https://rapidsync.lightningdevkit.org/testnet/snapshot";
+const DEFAULT_ECASH_STORAGE_DIR: &str = ".ecash-gateway";
 
 // ============================================================================
 // Configuration Types
@@ -41,6 +42,12 @@ pub struct GatewayConfig {
 
     /// LDK node configuration
     pub ldk: LdkConfig,
+
+    /// Cashu mint URL for ecash operations (required)
+    pub mint_url: String,
+
+    /// Directory to store ecash wallet data (SQLite)
+    pub ecash_storage_dir: String,
 }
 
 /// LDK Lightning node configuration
@@ -76,6 +83,8 @@ impl Default for GatewayConfig {
             api_port: DEFAULT_API_PORT,
             ldk_cli_port: DEFAULT_LDK_CLI_PORT,
             ldk: LdkConfig::default(),
+            mint_url: String::new(),
+            ecash_storage_dir: DEFAULT_ECASH_STORAGE_DIR.to_string(),
         }
     }
 }
@@ -174,6 +183,14 @@ impl GatewayConfig {
         }
         if let Ok(val) = env::var("GATEWAY_LDK_MNEMONIC") {
             self.ldk.mnemonic = Some(val);
+        }
+
+        // Ecash configuration
+        if let Ok(val) = env::var("GATEWAY_MINT_URL") {
+            self.mint_url = val;
+        }
+        if let Ok(val) = env::var("GATEWAY_ECASH_STORAGE_DIR") {
+            self.ecash_storage_dir = val;
         }
     }
 

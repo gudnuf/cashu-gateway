@@ -37,3 +37,11 @@ listening_port = 9735
 # WARNING: Keep this secret! Anyone with this mnemonic can spend your funds.
 # mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
 
+# ---- Ecash (Cashu) Configuration ----
+
+# Cashu mint URL for ecash wallet operations (required)
+mint_url = "https://mint.example.com"
+
+# Directory to store ecash wallet data (SQLite DB)
+ecash_storage_dir = ".ecash-gateway"
+
