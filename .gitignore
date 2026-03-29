@@ -1,0 +1,11 @@
+/target
+**/*.rs.bk
+Cargo.lock
+.direnv/
+result
+
+# Regtest data directories
+.data/
+.ldk-node-gateway/
+
+

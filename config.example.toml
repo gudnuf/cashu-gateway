@@ -1,0 +1,39 @@
+# Cashu Gateway Configuration
+#
+# Copy this file to config.toml and adjust values as needed.
+# All values can be overridden via environment variables.
+#
+# Environment variable format: GATEWAY_<SECTION>_<KEY> (e.g., GATEWAY_API_PORT, GATEWAY_LDK_NETWORK)
+# Legacy environment variables are also supported: LDK_NETWORK, ESPLORA_URL, RGS_URL
+
+# Port for the public gateway API
+api_port = 3338
+
+# Port for the internal ldk-cli API  
+ldk_cli_port = 3339
+
+[ldk]
+# Bitcoin network: regtest, testnet, signet, mainnet
+network = "regtest"
+
+# Directory to store LDK node data (keys, channels, etc.)
+storage_dir = ".ldk-node-gateway"
+
+# Port for Lightning P2P connections
+listening_port = 9735
+
+# Esplora server URL for chain data
+# Defaults based on network if not set:
+#   - regtest: http://127.0.0.1:3002
+#   - testnet/signet/mainnet: https://blockstream.info/testnet/api
+# esplora_url = "http://127.0.0.1:3002"
+
+# Rapid Gossip Sync URL (optional, not used for regtest)
+# Defaults to: https://rapidsync.lightningdevkit.org/testnet/snapshot
+# rgs_url = "https://rapidsync.lightningdevkit.org/testnet/snapshot"
+
+# BIP39 mnemonic for node entropy (optional)
+# If not provided, LDK will generate and persist a new key on first run.
+# WARNING: Keep this secret! Anyone with this mnemonic can spend your funds.
+# mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
+

@@ -1,0 +1,70 @@
+services:
+  bitcoind:
+    image: lncm/bitcoind:v27.0
+    container_name: cashu-gateway-bitcoind
+    restart: unless-stopped
+    ports:
+      - "18443:18443"  # RPC
+      - "18444:18444"  # P2P
+    volumes:
+      - bitcoind-data:/data/.bitcoin
+    command:
+      - -regtest
+      - -server=1
+      - -txindex=1
+      - -rest=1
+      - -rpcport=18443
+      - -rpcbind=0.0.0.0
+      - -rpcallowip=0.0.0.0/0
+      - -rpcuser=bitcoin
+      - -rpcpassword=bitcoin
+      - -fallbackfee=0.00001
+      - -debug=0
+      - -printtoconsole=1
+    healthcheck:
+      test: ["CMD", "bitcoin-cli", "-regtest", "-rpcuser=bitcoin", "-rpcpassword=bitcoin", "getblockchaininfo"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks:
+      - cashu-regtest
+
+  esplora:
+    image: blockstream/esplora:latest
+    container_name: cashu-gateway-esplora
+    restart: unless-stopped
+    depends_on:
+      bitcoind:
+        condition: service_healthy
+    ports:
+      - "3002:3002"    # HTTP API (Esplora REST)
+      - "50001:50001"  # Electrum RPC
+    volumes:
+      - esplora-data:/data
+    entrypoint: ["/srv/explorer/electrs_bitcoin/bin/electrs"]
+    command:
+      - --network
+      - regtest
+      - --daemon-rpc-addr
+      - bitcoind:18443
+      - --cookie
+      - "bitcoin:bitcoin"
+      - --http-addr
+      - "0.0.0.0:3002"
+      - --electrum-rpc-addr
+      - "0.0.0.0:50001"
+      - --cors
+      - "*"
+      - --db-dir
+      - /data
+      - --jsonrpc-import
+    networks:
+      - cashu-regtest
+
+networks:
+  cashu-regtest:
+    driver: bridge
+
+volumes:
+  bitcoind-data:
+  esplora-data:
