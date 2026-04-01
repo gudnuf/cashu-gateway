@@ -6,3 +6,4 @@ license = "MIT"
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
+cdk-common = { git = "https://github.com/cashubtc/cdk.git", tag = "v0.16.0-rc.2" }

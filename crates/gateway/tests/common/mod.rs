@@ -32,6 +32,7 @@ pub const PUSH_SATS: u64 = 50_000;
 
 pub const TEST_API_PORT: u16 = 13338;
 pub const TEST_LDK_CLI_PORT: u16 = 13339;
+pub const MINT_URL: &str = "http://127.0.0.1:8085"; // CDK mint in docker-compose
 
 // =============================================================================
 // API Types
@@ -220,12 +221,21 @@ fn find_gateway_binary() -> Result<PathBuf> {
         .map(PathBuf::from)
         .unwrap_or_else(|_| std::env::current_dir().unwrap_or_default());
 
-    for path in ["target/debug/cashu-gateway", "target/release/cashu-gateway"] {
-        let candidate = manifest_dir.join(path);
-        if candidate.exists() {
-            return candidate
-                .canonicalize()
-                .map_err(|e| anyhow!("Failed to canonicalize: {}", e));
+    // Search from both the crate manifest dir and the workspace root
+    let workspace_root = manifest_dir
+        .ancestors()
+        .find(|p| p.join("Cargo.lock").exists())
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| manifest_dir.clone());
+
+    for base in [&manifest_dir, &workspace_root] {
+        for path in ["target/debug/cashu-gateway", "target/release/cashu-gateway"] {
+            let candidate = base.join(path);
+            if candidate.exists() {
+                return candidate
+                    .canonicalize()
+                    .map_err(|e| anyhow!("Failed to canonicalize: {}", e));
+            }
         }
     }
 
@@ -242,6 +252,8 @@ fn spawn_gateway(gateway_dir: &PathBuf) -> Result<Child> {
         .env("GATEWAY_LDK_STORAGE_DIR", gateway_dir.to_str().unwrap())
         .env("GATEWAY_LDK_LISTENING_PORT", LN_PORT.to_string())
         .env("GATEWAY_ESPLORA_URL", ESPLORA_URL)
+        .env("GATEWAY_MINT_URL", MINT_URL)
+        .env("GATEWAY_ECASH_STORAGE_DIR", gateway_dir.join("ecash").to_str().unwrap())
         .env("RUST_LOG", "info")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

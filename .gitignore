@@ -7,5 +7,6 @@ result
 # Regtest data directories
 .data/
 .ldk-node-gateway/
+.ecash-gateway/
 
 
