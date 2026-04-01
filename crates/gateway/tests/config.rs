@@ -2,13 +2,13 @@
 
 use std::io::Write;
 
-use cashu_gateway::GatewayConfig;
+use cashu_gateway::StandaloneConfig;
 
 #[test]
 fn test_defaults() {
-    let config = GatewayConfig::default();
+    let config = StandaloneConfig::default();
 
-    assert_eq!(config.api_port, 3338);
+    assert_eq!(config.gateway.api_port, 3338);
     assert_eq!(config.ldk_cli_port, 3339);
     assert_eq!(config.ldk.network, "regtest");
     assert_eq!(config.ldk.storage_dir, ".ldk-node-gateway");
@@ -45,7 +45,7 @@ esplora_url = "http://custom-esplora:3002"
         std::env::remove_var(k);
     }
 
-    let config = GatewayConfig::load(Some(&config_path)).unwrap();
+    let config = StandaloneConfig::load(Some(&config_path)).unwrap();
 
     // Restore env vars
     for (k, v) in &saved {
@@ -55,7 +55,7 @@ esplora_url = "http://custom-esplora:3002"
         }
     }
 
-    assert_eq!(config.api_port, 4000);
+    assert_eq!(config.gateway.api_port, 4000);
     assert_eq!(config.ldk_cli_port, 4001);
     assert_eq!(config.ldk.network, "testnet");
     assert_eq!(config.ldk.storage_dir, "/custom/path");

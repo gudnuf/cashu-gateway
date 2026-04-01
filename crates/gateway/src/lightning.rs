@@ -2,6 +2,7 @@
 
 use anyhow::Result;
 use async_trait::async_trait;
+use ldk_node::lightning_invoice::Bolt11Invoice;
 use serde::{Deserialize, Serialize};
 
 /// Result of a successful payment
@@ -25,5 +26,7 @@ pub trait LightningBackend: Send + Sync {
         amount_msat: u64,
         payment_hash: &str,
         expiry_secs: u32,
-    ) -> Result<String>;
+    ) -> Result<Bolt11Invoice>;
+
+    fn shutdown(&self) -> Result<()>;
 }

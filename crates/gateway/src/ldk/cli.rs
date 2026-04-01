@@ -13,7 +13,7 @@ use axum::{Json, Router};
 use clap::{Parser, Subcommand};
 use serde::{Deserialize, Serialize};
 
-use crate::config::GatewayConfig;
+use crate::config::StandaloneConfig;
 use crate::ldk::types::{
     LnBalance, LnChannel, LnInfo, LnNewAddress, LnOpenChannelResult, LnPeer, LnSyncResult,
 };
@@ -217,9 +217,9 @@ async fn post_create_invoice_for_hash<T: LdkNodeOperations>(
     state
         .backend
         .create_invoice_for_hash(req.amount_msat, &req.payment_hash, req.expiry_secs)
-        .map(|bolt11| {
+        .map(|invoice| {
             Json(CreateInvoiceResponse {
-                bolt11,
+                bolt11: invoice.to_string(),
             })
         })
         .map_err(|e| e.to_string())
@@ -252,7 +252,7 @@ pub fn ldk_router<T: LdkNodeOperations + 'static>(backend: Arc<T>) -> Router {
 
 pub async fn run_ldk_cli(cli: LdkCli) -> Result<()> {
     // Load config to get the default port
-    let config = GatewayConfig::load(None)?;
+    let config = StandaloneConfig::load(None)?;
     let port = cli.port.unwrap_or(config.ldk_cli_port);
     let base_url = format!("http://127.0.0.1:{}", port);
     let client = reqwest::Client::new();

@@ -20,7 +20,7 @@ use ldk_node::lightning_types::payment::PaymentHash;
 use ldk_node::{Builder, Node};
 use tokio::task::JoinHandle;
 
-use crate::config::GatewayConfig;
+use crate::config::LdkConfig;
 use crate::ldk::cli::{ldk_router, ApiResult};
 use crate::ldk::types::{
     LnBalance, LnChannel, LnInfo, LnNewAddress, LnOpenChannelResult, LnPeer, LnSyncResult,
@@ -80,7 +80,7 @@ pub trait LdkNodeOperations: Send + Sync + Clone {
         amount_msat: u64,
         payment_hash: &str,
         expiry_secs: u32,
-    ) -> Result<String>;
+    ) -> Result<Bolt11Invoice>;
 }
 
 #[derive(Clone)]
@@ -92,16 +92,15 @@ pub struct LdkLightningBackend {
 }
 
 impl LdkLightningBackend {
-    fn new(config: &GatewayConfig) -> Result<Self> {
-        let network = config.network();
-        let esplora_url = config
-            .ldk
+    fn new(ldk_config: &LdkConfig) -> Result<Self> {
+        let network = ldk_config.network();
+        let esplora_url = ldk_config
             .esplora_url
             .as_ref()
             .expect("esplora_url should be set by config loading");
-        let rgs_url = &config.ldk.rgs_url;
-        let storage_dir = &config.ldk.storage_dir;
-        let listening_port = config.ldk.listening_port;
+        let rgs_url = &ldk_config.rgs_url;
+        let storage_dir = &ldk_config.storage_dir;
+        let listening_port = ldk_config.listening_port;
 
         tracing::info!(
             network = ?network,
@@ -127,7 +126,7 @@ impl LdkLightningBackend {
         builder.set_listening_addresses(vec![listening_addr])?;
 
         // Set mnemonic if provided, otherwise LDK will generate one
-        if let Some(mnemonic_str) = &config.ldk.mnemonic {
+        if let Some(mnemonic_str) = &ldk_config.mnemonic {
             let mnemonic =
                 ldk_node::bip39::Mnemonic::from_str(mnemonic_str).expect("valid mnemonic");
             builder.set_entropy_bip39_mnemonic(mnemonic, None);
@@ -172,32 +171,27 @@ impl LdkLightningBackend {
 }
 
 impl LdkLightningBackend {
-    pub async fn setup(config: &GatewayConfig) -> Result<Self> {
+    pub async fn setup(ldk_config: &LdkConfig, ldk_cli_port: u16) -> Result<Self> {
         // Check Esplora is reachable before initializing the node
-        let esplora_url = config
-            .ldk
+        let esplora_url = ldk_config
             .esplora_url
             .as_ref()
             .expect("esplora_url should be set");
         check_esplora_health(esplora_url).await;
 
         // Create and start the node
-        let backend = Self::new(config)?;
+        let backend = Self::new(ldk_config)?;
         backend.start_node()?;
 
         // Start the CLI server internally
         let backend_arc = Arc::new(backend.clone());
-        let cli_handle = backend_arc.clone().start_cli_server(config.ldk_cli_port);
+        let cli_handle = backend_arc.clone().start_cli_server(ldk_cli_port);
 
         // Return with the CLI handle stored
         Ok(Self {
             node: backend.node,
             cli_server_handle: Arc::new(Some(cli_handle)),
         })
-    }
-
-    pub fn shutdown(&self) -> Result<()> {
-        self.stop_node()
     }
 }
 
@@ -281,7 +275,7 @@ impl LightningBackend for LdkLightningBackend {
         amount_msat: u64,
         payment_hash: &str,
         expiry_secs: u32,
-    ) -> Result<String> {
+    ) -> Result<Bolt11Invoice> {
         // Parse the payment hash from hex string
         let hash_bytes: [u8; 32] = FromHex::from_hex(payment_hash)
             .map_err(|e| anyhow!("Invalid payment hash hex: {}", e))?;
@@ -294,7 +288,11 @@ impl LightningBackend for LdkLightningBackend {
             .bolt11_payment()
             .receive_for_hash(amount_msat, &description, expiry_secs, payment_hash)?;
 
-        Ok(invoice.to_string())
+        Ok(invoice)
+    }
+
+    fn shutdown(&self) -> Result<()> {
+        self.stop_node()
     }
 }
 
@@ -433,7 +431,7 @@ impl LdkNodeOperations for LdkLightningBackend {
         amount_msat: u64,
         payment_hash: &str,
         expiry_secs: u32,
-    ) -> Result<String> {
+    ) -> Result<Bolt11Invoice> {
         LightningBackend::create_invoice_for_hash(self, amount_msat, payment_hash, expiry_secs)
     }
 }
@@ -487,7 +485,7 @@ impl LdkNodeOperations for Arc<LdkLightningBackend> {
         amount_msat: u64,
         payment_hash: &str,
         expiry_secs: u32,
-    ) -> Result<String> {
+    ) -> Result<Bolt11Invoice> {
         LightningBackend::create_invoice_for_hash(self.as_ref(), amount_msat, payment_hash, expiry_secs)
     }
 }

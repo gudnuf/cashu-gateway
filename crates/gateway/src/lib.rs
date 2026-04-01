@@ -17,7 +17,7 @@ pub mod lightning;
 use serde::{Deserialize, Serialize};
 
 // Public exports for the gateway
-pub use config::GatewayConfig;
+pub use config::{GatewayConfig, LdkConfig, StandaloneConfig};
 pub use lightning::{LightningBackend, PaymentResult};
 
 // Re-export LDK implementation (gateway can choose which backend to use)

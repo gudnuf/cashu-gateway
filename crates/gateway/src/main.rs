@@ -13,7 +13,7 @@ use clap::{Parser, Subcommand};
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
-use cashu_gateway::config::GatewayConfig;
+use cashu_gateway::config::StandaloneConfig;
 use cashu_gateway::ecash::EcashWallet;
 use cashu_gateway::ldk::LdkLightningBackend;
 use cashu_gateway::lightning::LightningBackend;
@@ -21,7 +21,7 @@ use cashu_gateway::{GatewayInfo, MakeInvoiceRequest, MakeInvoiceResponse};
 
 #[derive(Clone)]
 struct AppState {
-    backend: Arc<dyn LightningBackend>,
+    backend: Arc<LdkLightningBackend>,
     ecash: Arc<EcashWallet>,
 }
 
@@ -68,32 +68,31 @@ async fn main() -> Result<()> {
                 .init();
 
             // Load configuration
-            let config = GatewayConfig::load(cli.config.as_deref())?;
+            let config = StandaloneConfig::load(cli.config.as_deref())?;
 
             info!(
-                api_port = config.api_port,
+                api_port = config.gateway.api_port,
                 ldk_cli_port = config.ldk_cli_port,
                 network = %config.ldk.network,
                 storage_dir = %config.ldk.storage_dir,
                 "Starting Cashu Gateway with LDK Node backend"
             );
 
-            let ldk_backend = Arc::new(LdkLightningBackend::setup(&config).await?);
-            let backend: Arc<dyn LightningBackend> = ldk_backend.clone();
+            let backend = Arc::new(LdkLightningBackend::setup(&config.ldk, config.ldk_cli_port).await?);
 
             // Initialize ecash wallet
-            info!(mint_url = %config.mint_url, storage_dir = %config.ecash_storage_dir, "Initializing ecash wallet");
-            let ecash_wallet = EcashWallet::new(&config.mint_url, &config.ecash_storage_dir).await?;
+            info!(mint_url = %config.gateway.mint_url, storage_dir = %config.gateway.ecash_storage_dir, "Initializing ecash wallet");
+            let ecash_wallet = EcashWallet::new(&config.gateway.mint_url, &config.gateway.ecash_storage_dir).await?;
             let balance = ecash_wallet.get_balance().await?;
-            info!(mint_url = %config.mint_url, balance_sats = balance, "Ecash wallet ready");
+            info!(mint_url = %config.gateway.mint_url, balance_sats = balance, "Ecash wallet ready");
 
             let state = AppState {
-                backend,
+                backend: backend.clone(),
                 ecash: Arc::new(ecash_wallet),
             };
 
             // Public gateway API
-            let api_port = config.api_port;
+            let api_port = config.gateway.api_port;
             let public_app = Router::new()
                 .route(
                     "/info",
@@ -106,7 +105,7 @@ async fn main() -> Result<()> {
                 .route("/make-invoice", post(make_invoice_handler))
                 .with_state(state);
 
-            let public_addr = SocketAddr::from(([127, 0, 0, 1], config.api_port));
+            let public_addr = SocketAddr::from(([127, 0, 0, 1], config.gateway.api_port));
             info!("Public HTTP API listening on {}", public_addr);
             let public_listener = tokio::net::TcpListener::bind(public_addr).await?;
 
@@ -126,12 +125,12 @@ async fn main() -> Result<()> {
                 _ = shutdown => {}
             }
 
-            ldk_backend.shutdown()?;
+            backend.shutdown()?;
             Ok(())
         }
         Some(Commands::Info) => {
-            let config = GatewayConfig::load(cli.config.as_deref())?;
-            let url = format!("http://127.0.0.1:{}/info", config.api_port);
+            let config = StandaloneConfig::load(cli.config.as_deref())?;
+            let url = format!("http://127.0.0.1:{}/info", config.gateway.api_port);
             let info: GatewayInfo = reqwest::get(&url).await?.json().await?;
             println!("{}", serde_json::to_string_pretty(&info)?);
             Ok(())
@@ -141,8 +140,8 @@ async fn main() -> Result<()> {
             payment_hash,
             expiry_secs,
         }) => {
-            let config = GatewayConfig::load(cli.config.as_deref())?;
-            let url = format!("http://127.0.0.1:{}/make-invoice", config.api_port);
+            let config = StandaloneConfig::load(cli.config.as_deref())?;
+            let url = format!("http://127.0.0.1:{}/make-invoice", config.gateway.api_port);
             let request = MakeInvoiceRequest {
                 amount_msat,
                 payment_hash,
@@ -250,7 +249,7 @@ async fn request_invoice_handler(
     let token = Token::new(mint_url, htlc_proofs, None, CurrencyUnit::Sat);
 
     Ok(Json(cashu_gateway_protocol::RequestInvoiceResponse {
-        bolt11: invoice,
+        bolt11: invoice.to_string(),
         payment_hash,
         htlc_token: token.to_string(),
     }))
@@ -266,7 +265,7 @@ async fn make_invoice_handler(
         .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
 
     Ok(Json(MakeInvoiceResponse {
-        bolt11: invoice,
+        bolt11: invoice.to_string(),
     }))
 }
 
