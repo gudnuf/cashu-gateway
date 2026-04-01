@@ -92,6 +92,14 @@ pub struct LdkLightningBackend {
 }
 
 impl LdkLightningBackend {
+    /// Wrap an externally-created and already-started LDK node.
+    pub fn from_node(node: Arc<Node>) -> Self {
+        Self {
+            node,
+            cli_server_handle: Arc::new(None),
+        }
+    }
+
     fn new(ldk_config: &LdkConfig) -> Result<Self> {
         let network = ldk_config.network();
         let esplora_url = ldk_config
