@@ -165,7 +165,7 @@ impl EcashWallet {
                 pubkeys: Some(vec![alice_pubkey]),
                 refund_keys: Some(vec![gateway_pubkey]),
                 num_sigs: None,
-                sig_flag: SigFlag::SigAll,
+                sig_flag: SigFlag::SigInputs,
                 num_sigs_refund: None,
             }),
         )
