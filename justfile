@@ -106,12 +106,12 @@ regtest-clean: regtest-stop
 # ============================================================================
 
 # run the gateway in development mode
-run: 
-  cargo run --bin cashu-gateway
+run:
+  cargo run -p cashu-gateway --bin cashu-gateway
 
 # run the ldk-cli
 ldk *ARGS:
-  cargo run --bin ldk-cli -- {{ARGS}}
+  cargo run -p cashu-gateway --bin ldk-cli -- {{ARGS}}
 
 # watch and rebuild on changes
 watch:
