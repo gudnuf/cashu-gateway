@@ -33,9 +33,14 @@ reqwest = { version = "0.12", features = ["json"] }
 cdk = { git = "https://github.com/cashubtc/cdk.git", tag = "v0.16.0-rc.2", default-features = false, features = ["wallet"] }
 cdk-common = { git = "https://github.com/cashubtc/cdk.git", tag = "v0.16.0-rc.2" }
 cdk-sqlite = { git = "https://github.com/cashubtc/cdk.git", tag = "v0.16.0-rc.2" }
+cashu-gateway-protocol = { path = "../protocol" }
 rand = "0.8"
 
 [dev-dependencies]
 tempfile = "3"
 uuid = { version = "1", features = ["v4"] }
 rand = "0.8"
+cdk = { git = "https://github.com/cashubtc/cdk.git", tag = "v0.16.0-rc.2", default-features = false, features = ["wallet"] }
+cdk-common = { git = "https://github.com/cashubtc/cdk.git", tag = "v0.16.0-rc.2" }
+cdk-sqlite = { git = "https://github.com/cashubtc/cdk.git", tag = "v0.16.0-rc.2" }
+cashu-gateway-protocol = { path = "../protocol" }
