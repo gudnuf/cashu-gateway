@@ -80,7 +80,7 @@ pub trait LdkNodeOperations: Send + Sync + Clone {
         amount_msat: u64,
         payment_hash: &str,
         expiry_secs: u32,
-    ) -> Result<Bolt11Invoice>;
+    ) -> Result<String>;
 }
 
 #[derive(Clone)]
@@ -171,12 +171,8 @@ impl LdkLightningBackend {
     }
 }
 
-#[async_trait]
-impl LightningBackend for LdkLightningBackend {
-    async fn setup(config: &GatewayConfig) -> Result<Self>
-    where
-        Self: Sized,
-    {
+impl LdkLightningBackend {
+    pub async fn setup(config: &GatewayConfig) -> Result<Self> {
         // Check Esplora is reachable before initializing the node
         let esplora_url = config
             .ldk
@@ -200,6 +196,13 @@ impl LightningBackend for LdkLightningBackend {
         })
     }
 
+    pub fn shutdown(&self) -> Result<()> {
+        self.stop_node()
+    }
+}
+
+#[async_trait]
+impl LightningBackend for LdkLightningBackend {
     async fn pay_invoice(&self, bolt11: &str) -> Result<PaymentResult> {
         let invoice = Bolt11Invoice::from_str(bolt11)
             .map_err(|e| anyhow!("Invalid BOLT11 invoice: {}", e))?;
@@ -278,7 +281,7 @@ impl LightningBackend for LdkLightningBackend {
         amount_msat: u64,
         payment_hash: &str,
         expiry_secs: u32,
-    ) -> Result<Bolt11Invoice> {
+    ) -> Result<String> {
         // Parse the payment hash from hex string
         let hash_bytes: [u8; 32] = FromHex::from_hex(payment_hash)
             .map_err(|e| anyhow!("Invalid payment hash hex: {}", e))?;
@@ -291,11 +294,7 @@ impl LightningBackend for LdkLightningBackend {
             .bolt11_payment()
             .receive_for_hash(amount_msat, &description, expiry_secs, payment_hash)?;
 
-        Ok(invoice)
-    }
-
-    fn shutdown(&self) -> Result<()> {
-        self.stop_node()
+        Ok(invoice.to_string())
     }
 }
 
@@ -434,7 +433,7 @@ impl LdkNodeOperations for LdkLightningBackend {
         amount_msat: u64,
         payment_hash: &str,
         expiry_secs: u32,
-    ) -> Result<Bolt11Invoice> {
+    ) -> Result<String> {
         LightningBackend::create_invoice_for_hash(self, amount_msat, payment_hash, expiry_secs)
     }
 }
@@ -488,7 +487,7 @@ impl LdkNodeOperations for Arc<LdkLightningBackend> {
         amount_msat: u64,
         payment_hash: &str,
         expiry_secs: u32,
-    ) -> Result<Bolt11Invoice> {
+    ) -> Result<String> {
         LightningBackend::create_invoice_for_hash(self.as_ref(), amount_msat, payment_hash, expiry_secs)
     }
 }

@@ -21,7 +21,7 @@ use cashu_gateway::{GatewayInfo, MakeInvoiceRequest, MakeInvoiceResponse};
 
 #[derive(Clone)]
 struct AppState {
-    backend: Arc<LdkLightningBackend>,
+    backend: Arc<dyn LightningBackend>,
     ecash: Arc<EcashWallet>,
 }
 
@@ -78,7 +78,8 @@ async fn main() -> Result<()> {
                 "Starting Cashu Gateway with LDK Node backend"
             );
 
-            let backend = Arc::new(LdkLightningBackend::setup(&config).await?);
+            let ldk_backend = Arc::new(LdkLightningBackend::setup(&config).await?);
+            let backend: Arc<dyn LightningBackend> = ldk_backend.clone();
 
             // Initialize ecash wallet
             info!(mint_url = %config.mint_url, storage_dir = %config.ecash_storage_dir, "Initializing ecash wallet");
@@ -87,7 +88,7 @@ async fn main() -> Result<()> {
             info!(mint_url = %config.mint_url, balance_sats = balance, "Ecash wallet ready");
 
             let state = AppState {
-                backend: backend.clone(),
+                backend,
                 ecash: Arc::new(ecash_wallet),
             };
 
@@ -125,7 +126,7 @@ async fn main() -> Result<()> {
                 _ = shutdown => {}
             }
 
-            backend.shutdown()?;
+            ldk_backend.shutdown()?;
             Ok(())
         }
         Some(Commands::Info) => {
@@ -249,7 +250,7 @@ async fn request_invoice_handler(
     let token = Token::new(mint_url, htlc_proofs, None, CurrencyUnit::Sat);
 
     Ok(Json(cashu_gateway_protocol::RequestInvoiceResponse {
-        bolt11: invoice.to_string(),
+        bolt11: invoice,
         payment_hash,
         htlc_token: token.to_string(),
     }))
@@ -265,7 +266,7 @@ async fn make_invoice_handler(
         .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
 
     Ok(Json(MakeInvoiceResponse {
-        bolt11: invoice.to_string(),
+        bolt11: invoice,
     }))
 }
 

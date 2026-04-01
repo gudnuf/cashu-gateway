@@ -2,11 +2,7 @@
 
 use anyhow::Result;
 use async_trait::async_trait;
-use ldk_node::lightning_invoice::Bolt11Invoice;
 use serde::{Deserialize, Serialize};
-
-use crate::config::GatewayConfig;
-
 
 /// Result of a successful payment
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -23,16 +19,11 @@ pub struct PaymentResult {
 
 #[async_trait]
 pub trait LightningBackend: Send + Sync {
-    async fn setup(config: &GatewayConfig) -> Result<Self>
-    where
-        Self: Sized;
     async fn pay_invoice(&self, bolt11: &str) -> Result<PaymentResult>;
     fn create_invoice_for_hash(
         &self,
         amount_msat: u64,
         payment_hash: &str,
         expiry_secs: u32,
-    ) -> Result<Bolt11Invoice>;
-
-    fn shutdown(&self) -> Result<()>;
+    ) -> Result<String>;
 }

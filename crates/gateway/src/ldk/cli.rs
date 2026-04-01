@@ -217,9 +217,9 @@ async fn post_create_invoice_for_hash<T: LdkNodeOperations>(
     state
         .backend
         .create_invoice_for_hash(req.amount_msat, &req.payment_hash, req.expiry_secs)
-        .map(|invoice| {
+        .map(|bolt11| {
             Json(CreateInvoiceResponse {
-                bolt11: invoice.to_string(),
+                bolt11,
             })
         })
         .map_err(|e| e.to_string())
