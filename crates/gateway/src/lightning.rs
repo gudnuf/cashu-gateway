@@ -13,6 +13,8 @@ use crate::config::GatewayConfig;
 pub struct PaymentResult {
     /// Payment hash (hex encoded)
     pub payment_hash: String,
+    /// Payment preimage (hex encoded)
+    pub payment_preimage: String,
     /// Amount paid in millisatoshis
     pub amount_msat: u64,
     /// Fee paid in millisatoshis
@@ -24,7 +26,7 @@ pub trait LightningBackend: Send + Sync {
     async fn setup(config: &GatewayConfig) -> Result<Self>
     where
         Self: Sized;
-    fn pay_invoice(&self, bolt11: &str) -> Result<PaymentResult>;
+    async fn pay_invoice(&self, bolt11: &str) -> Result<PaymentResult>;
     fn create_invoice_for_hash(
         &self,
         amount_msat: u64,

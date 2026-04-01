@@ -200,16 +200,13 @@ impl LightningBackend for LdkLightningBackend {
         })
     }
 
-    fn pay_invoice(&self, bolt11: &str) -> Result<PaymentResult> {
+    async fn pay_invoice(&self, bolt11: &str) -> Result<PaymentResult> {
         let invoice = Bolt11Invoice::from_str(bolt11)
             .map_err(|e| anyhow!("Invalid BOLT11 invoice: {}", e))?;
 
         let payment_id = self.node.bolt11_payment().send(&invoice, None)?;
 
-        // Get the payment hash from the invoice
         let payment_hash = invoice.payment_hash().to_string();
-
-        // Get amount from invoice (or return error if amount-less invoice)
         let amount_msat = invoice
             .amount_milli_satoshis()
             .ok_or_else(|| anyhow!("Invoice has no amount specified"))?;
@@ -218,16 +215,62 @@ impl LightningBackend for LdkLightningBackend {
             payment_id = ?payment_id,
             payment_hash = %payment_hash,
             amount_msat = %amount_msat,
-            "Payment sent"
+            "Payment sent, waiting for completion"
         );
 
-        // Note: Fee is not immediately known; returning 0 for now
-        // In a real implementation, you'd wait for the payment to complete
-        Ok(PaymentResult {
-            payment_hash,
-            amount_msat,
-            fee_msat: 0,
-        })
+        // Poll payment status until success/failure or timeout
+        let timeout = tokio::time::Instant::now() + Duration::from_secs(60);
+        loop {
+            if tokio::time::Instant::now() >= timeout {
+                return Err(anyhow!(
+                    "Payment timed out after 60s (payment_hash={})", payment_hash
+                ));
+            }
+
+            if let Some(details) = self.node.payment(&payment_id) {
+                match details.status {
+                    ldk_node::payment::PaymentStatus::Succeeded => {
+                        // Extract preimage from PaymentKind::Bolt11
+                        let preimage = match &details.kind {
+                            ldk_node::payment::PaymentKind::Bolt11 { preimage, .. } => {
+                                preimage.as_ref().map(|p| p.to_string())
+                            }
+                            _ => None,
+                        }
+                        .ok_or_else(|| anyhow!(
+                            "Payment succeeded but no preimage available (payment_hash={})",
+                            payment_hash
+                        ))?;
+
+                        let fee_msat = details.fee_paid_msat.unwrap_or(0);
+                        tracing::info!(
+                            %payment_hash,
+                            %preimage,
+                            fee_msat,
+                            "Payment succeeded"
+                        );
+
+                        return Ok(PaymentResult {
+                            payment_hash,
+                            payment_preimage: preimage,
+                            amount_msat,
+                            fee_msat,
+                        });
+                    }
+                    ldk_node::payment::PaymentStatus::Failed => {
+                        return Err(anyhow!(
+                            "Payment failed (payment_hash={})", payment_hash
+                        ));
+                    }
+                    _ => {
+                        // Still pending, wait and retry
+                        tokio::time::sleep(Duration::from_millis(100)).await;
+                    }
+                }
+            } else {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        }
     }
 
     fn create_invoice_for_hash(

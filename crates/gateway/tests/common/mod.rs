@@ -16,6 +16,18 @@ use serde_json::json;
 use cashu_gateway::lightning::PaymentResult;
 use cashu_gateway::GatewayInfo;
 
+// CDK imports for Alice's test wallet
+use std::sync::Arc as StdArc;
+use cdk::wallet::WalletBuilder;
+use cdk::nuts::{CurrencyUnit, SecretKey, PublicKey as CdkPublicKey};
+use cdk::mint_url::MintUrl;
+use cdk::amount::SplitTarget;
+use cdk::Amount;
+use cdk_common::PaymentMethod;
+use cdk_common::nut00::KnownMethod;
+use cdk_sqlite::WalletSqliteDatabase;
+use ldk_node::bitcoin::hashes::{sha256, Hash};
+
 // =============================================================================
 // Constants
 // =============================================================================
@@ -92,6 +104,7 @@ pub struct TestEnv {
     pub http: reqwest::Client,
     test_dir: PathBuf,
     pub node: Arc<Node>,
+    pub alice: TestAliceWallet,
 }
 
 impl TestEnv {
@@ -130,6 +143,11 @@ impl TestEnv {
 
         let mint_url = MINT_URL.to_string();
 
+        // Setup Alice's ecash wallet
+        let alice = TestAliceWallet::setup(&test_dir, MINT_URL).await?;
+        // Pre-fund Alice with some ecash (1000 sats)
+        alice.mint_ecash(1000).await?;
+
         Ok(Self {
             gateway_process: Some(child),
             gateway_url,
@@ -138,6 +156,7 @@ impl TestEnv {
             http,
             test_dir,
             node,
+            alice,
         })
     }
 
@@ -195,7 +214,8 @@ impl TestEnv {
         tracing::info!(?payment_id, %payment_hash, %amount_msat, "Payment sent");
 
         Ok(PaymentResult {
-            payment_hash,
+            payment_hash: payment_hash.clone(),
+            payment_preimage: payment_hash, // placeholder for test helper
             amount_msat,
             fee_msat: 0,
         })
@@ -513,5 +533,133 @@ async fn ensure_minimum_blocks(http: &reqwest::Client, min_blocks: u64) -> Resul
         mine_blocks(http, min_blocks - block_count).await?;
     }
     Ok(())
+}
+
+// =============================================================================
+// Alice Test Wallet (CDK-based)
+// =============================================================================
+
+/// CDK-based test wallet for Alice, connected to the fakewallet mint.
+pub struct TestAliceWallet {
+    pub wallet: cdk::Wallet,
+    pub secret_key: SecretKey,
+    pub pubkey: CdkPublicKey,
+}
+
+impl TestAliceWallet {
+    /// Create a new test wallet connected to the CDK mint.
+    pub async fn setup(test_dir: &PathBuf, mint_url: &str) -> Result<Self> {
+        let wallet_dir = test_dir.join("alice_wallet");
+        std::fs::create_dir_all(&wallet_dir)?;
+
+        let db_path = wallet_dir.join("alice.sqlite");
+        let localstore = WalletSqliteDatabase::new(&db_path)
+            .await
+            .map_err(|e| anyhow!("Failed to create Alice wallet DB: {}", e))?;
+
+        // Random seed for test wallet
+        let mut seed = [0u8; 64];
+        rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut seed);
+
+        // Derive Alice's signing keypair from first 32 bytes
+        let secret_key = SecretKey::from_slice(&seed[..32])
+            .map_err(|e| anyhow!("Failed to derive Alice signing key: {}", e))?;
+        let pubkey = secret_key.public_key();
+
+        let mint = MintUrl::from_str(mint_url)
+            .map_err(|e| anyhow!("Invalid mint URL: {}", e))?;
+
+        let wallet = WalletBuilder::new()
+            .mint_url(mint)
+            .unit(CurrencyUnit::Sat)
+            .localstore(StdArc::new(localstore))
+            .seed(seed)
+            .build()
+            .map_err(|e| anyhow!("Failed to build Alice wallet: {}", e))?;
+
+        tracing::info!(pubkey = %pubkey, "Alice test wallet created");
+
+        Ok(Self {
+            wallet,
+            secret_key,
+            pubkey,
+        })
+    }
+
+    /// Mint ecash from the fakewallet CDK mint.
+    ///
+    /// The fakewallet backend auto-approves mint quotes, so this
+    /// creates a quote and immediately mints the tokens.
+    pub async fn mint_ecash(&self, amount_sats: u64) -> Result<u64> {
+        let amount = Amount::from(amount_sats);
+
+        // Create mint quote (fakewallet uses Bolt11 method)
+        let quote = self.wallet.mint_quote(
+                PaymentMethod::Known(KnownMethod::Bolt11),
+                Some(amount),
+                None,
+                None,
+            )
+            .await
+            .map_err(|e| anyhow!("Failed to create mint quote: {}", e))?;
+
+        tracing::info!(quote_id = %quote.id, amount_sats, "Mint quote created");
+
+        // Fakewallet auto-pays quotes after a few seconds.
+        // Poll the quote status via the mint REST API until PAID, then mint once.
+        let status_url = format!("{}/v1/mint/quote/bolt11/{}", MINT_URL, quote.id);
+        let http = reqwest::Client::new();
+
+        for attempt in 1..=30 {
+            tokio::time::sleep(Duration::from_secs(1)).await;
+
+            if let Ok(resp) = http.get(&status_url).send().await {
+                if let Ok(body) = resp.json::<serde_json::Value>().await {
+                    let state = body["state"].as_str().unwrap_or("unknown");
+                    tracing::info!(attempt, state, "Checking mint quote status");
+                    if state == "PAID" {
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Now mint exactly once
+        let proofs = self.wallet.mint(&quote.id, SplitTarget::default(), None)
+            .await
+            .map_err(|e| anyhow!("Failed to mint ecash: {}", e))?;
+
+        let sats: u64 = proofs.iter().map(|p| u64::from(p.amount)).sum();
+        tracing::info!(minted_sats = sats, "Ecash minted successfully");
+        Ok(sats)
+    }
+
+    /// Get total ecash balance in sats.
+    pub async fn balance(&self) -> Result<u64> {
+        let balance = self.wallet.total_balance()
+            .await
+            .map_err(|e| anyhow!("Failed to get Alice balance: {}", e))?;
+        Ok(u64::from(balance))
+    }
+
+    /// Get unspent proofs from the wallet.
+    pub async fn get_proofs(&self) -> Result<Vec<cdk::nuts::Proof>> {
+        self.wallet.get_unspent_proofs()
+            .await
+            .map_err(|e| anyhow!("Failed to get Alice proofs: {}", e))
+    }
+
+    /// Get the hex-encoded public key.
+    pub fn pubkey_hex(&self) -> String {
+        self.pubkey.to_string()
+    }
+}
+
+/// Generate a random 32-byte preimage and its SHA256 hash (hex-encoded).
+pub fn generate_preimage_pair() -> ([u8; 32], String) {
+    let mut preimage = [0u8; 32];
+    rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut preimage);
+    let hash = sha256::Hash::hash(&preimage);
+    (preimage, hash.to_string())
 }
 

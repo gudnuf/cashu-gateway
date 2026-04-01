@@ -178,10 +178,11 @@ async fn pay_invoice_handler(
 
     info!(received_sats, bolt11 = %request.bolt11, "Ecash received, paying Lightning invoice");
 
-    // 2. Pay the Lightning invoice
+    // 2. Pay the Lightning invoice (blocks until payment completes or timeout)
     let result = state
         .backend
         .pay_invoice(&request.bolt11)
+        .await
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -191,9 +192,7 @@ async fn pay_invoice_handler(
 
     Ok(Json(cashu_gateway_protocol::PayInvoiceResponse {
         paid: true,
-        // TODO: LDK returns preimage asynchronously via events, not from pay_invoice.
-        // For now we return payment_hash as placeholder. Phase 3 will add event-based settlement.
-        payment_preimage: Some(result.payment_hash),
+        payment_preimage: Some(result.payment_preimage),
         fee_msat: Some(result.fee_msat),
     }))
 }
