@@ -88,6 +88,7 @@ pub struct TestEnv {
     gateway_process: Option<Child>,
     pub gateway_url: String,
     pub ldk_cli_url: String,
+    pub mint_url: String,
     pub http: reqwest::Client,
     test_dir: PathBuf,
     pub node: Arc<Node>,
@@ -106,6 +107,7 @@ impl TestEnv {
         // Wait for regtest services
         wait_for_bitcoind(&http).await?;
         wait_for_esplora(&http).await?;
+        wait_for_mint(&http).await?;
         ensure_minimum_blocks(&http, 101).await?;
 
         // Start gateway process
@@ -126,10 +128,13 @@ impl TestEnv {
         let gateway_node_id = get_gateway_node_id(&http, &ldk_cli_url).await?;
         open_channel_to_gateway(&http, &node, gateway_node_id, &ldk_cli_url).await?;
 
+        let mint_url = MINT_URL.to_string();
+
         Ok(Self {
             gateway_process: Some(child),
             gateway_url,
             ldk_cli_url,
+            mint_url,
             http,
             test_dir,
             node,
@@ -433,6 +438,22 @@ async fn wait_for_esplora(http: &reqwest::Client) -> Result<()> {
         tokio::time::sleep(Duration::from_millis(500)).await;
     }
     Err(anyhow!("Esplora not available. Run `start-regtest` first."))
+}
+
+async fn wait_for_mint(http: &reqwest::Client) -> Result<()> {
+    let timeout = Duration::from_secs(30);
+    let start = std::time::Instant::now();
+    let url = format!("{}/v1/info", MINT_URL);
+
+    while start.elapsed() < timeout {
+        if let Ok(resp) = http.get(&url).send().await {
+            if resp.status().is_success() {
+                return Ok(());
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+    Err(anyhow!("CDK mint not available at {}. Check docker-compose.", MINT_URL))
 }
 
 async fn wait_for_gateway(
