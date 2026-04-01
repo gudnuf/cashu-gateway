@@ -89,13 +89,17 @@ impl AliceClient {
 
         let response = self.gateway.pay_invoice(request).await?;
 
-        if response.paid {
-            info!(
-                preimage = response.payment_preimage.as_deref().unwrap_or("none"),
-                fee_msat = response.fee_msat.unwrap_or(0),
-                "Lightning invoice paid"
+        if !response.paid {
+            anyhow::bail!(
+                "Gateway accepted proofs but Lightning payment failed (invoice may be expired or unpayable)"
             );
         }
+
+        info!(
+            preimage = response.payment_preimage.as_deref().unwrap_or("none"),
+            fee_msat = response.fee_msat.unwrap_or(0),
+            "Lightning invoice paid"
+        );
 
         Ok(response)
     }
