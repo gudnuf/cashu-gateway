@@ -34,7 +34,26 @@ esplora_url = "http://custom-esplora:3002"
     let mut file = std::fs::File::create(&config_path).unwrap();
     file.write_all(toml.as_bytes()).unwrap();
 
+    // Clear env vars that would override TOML values (e.g. nix devShell sets LDK_NETWORK)
+    let env_vars = [
+        "GATEWAY_API_PORT", "GATEWAY_LDK_CLI_PORT", "GATEWAY_LDK_NETWORK",
+        "LDK_NETWORK", "GATEWAY_LDK_STORAGE_DIR", "GATEWAY_LDK_LISTENING_PORT",
+        "GATEWAY_ESPLORA_URL", "ESPLORA_URL",
+    ];
+    let saved: Vec<_> = env_vars.iter().map(|k| (*k, std::env::var(k).ok())).collect();
+    for k in &env_vars {
+        std::env::remove_var(k);
+    }
+
     let config = GatewayConfig::load(Some(&config_path)).unwrap();
+
+    // Restore env vars
+    for (k, v) in &saved {
+        match v {
+            Some(val) => std::env::set_var(k, val),
+            None => std::env::remove_var(k),
+        }
+    }
 
     assert_eq!(config.api_port, 4000);
     assert_eq!(config.ldk_cli_port, 4001);

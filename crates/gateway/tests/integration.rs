@@ -9,6 +9,7 @@
 mod common;
 
 use ldk_node::bitcoin::hashes::{sha256, Hash};
+use ldk_node::lightning_invoice::{Bolt11InvoiceDescription, Description};
 
 use common::TestEnv;
 
@@ -49,13 +50,41 @@ async fn test_create_invoice_for_hash() {
 #[tokio::test(flavor = "multi_thread")]
 #[ignore] // Requires regtest environment
 async fn test_alice_pays_ln_via_ecash() {
-    let _env = TestEnv::setup().await.expect("Failed to setup network");
+    let env = TestEnv::setup().await.expect("Failed to setup network");
 
-    // TODO: Alice mints ecash from CDK mint (via fakewallet)
-    // TODO: Create a test LN invoice (from test node)
-    // TODO: Alice calls gateway /pay-invoice with proofs + bolt11
-    // TODO: Assert payment succeeded and preimage returned
-    todo!("E2E: alice pays LN invoice via ecash through gateway");
+    // 1. Test node creates a Lightning invoice
+    let amount_sats = 10;
+    let amount_msat = amount_sats * 1000;
+    let description = Bolt11InvoiceDescription::Direct(
+        Description::new("test-alice-pays".to_string()).expect("valid description"),
+    );
+    let invoice = env
+        .node
+        .bolt11_payment()
+        .receive(amount_msat, &description, 3600)
+        .expect("Failed to create test invoice");
+
+    // 2. Alice gets proofs from her wallet
+    let proofs = env.alice.get_proofs().await.expect("Failed to get proofs");
+    assert!(!proofs.is_empty(), "Alice should have proofs");
+
+    // 3. Alice sends proofs + invoice to gateway
+    let gateway_client = cashu_alice::GatewayClient::new(&env.gateway_url);
+    let request = cashu_gateway_protocol::PayInvoiceRequest {
+        bolt11: invoice.to_string(),
+        proofs,
+    };
+    let response = gateway_client
+        .pay_invoice(request)
+        .await
+        .expect("pay_invoice failed");
+
+    // 4. Assert success
+    assert!(response.paid, "Payment should succeed");
+    assert!(
+        response.payment_preimage.is_some(),
+        "Should return preimage"
+    );
 }
 
 /// External payer pays a Lightning invoice to the gateway, Alice receives ecash.
@@ -69,13 +98,91 @@ async fn test_alice_pays_ln_via_ecash() {
 #[tokio::test(flavor = "multi_thread")]
 #[ignore] // Requires regtest environment
 async fn test_alice_receives_ecash_via_ln() {
-    let _env = TestEnv::setup().await.expect("Failed to setup network");
+    let env = TestEnv::setup().await.expect("Failed to setup network");
 
-    // TODO: Alice generates preimage + hash
-    // TODO: Alice calls gateway /request-invoice with pubkey + blinded messages + preimage_hash
-    // TODO: External payer pays the returned HODL invoice
-    // TODO: Alice claims HTLC ecash at the mint using her preimage
-    // TODO: Assert Alice received the ecash
-    // TODO: Assert gateway settled the HODL invoice (extracted preimage from NUT-07)
-    todo!("E2E: alice receives ecash via inbound LN payment through gateway");
+    let gateway_client = cashu_alice::GatewayClient::new(&env.gateway_url);
+
+    // Step 0: Fund the gateway's ecash wallet by having Alice pay a LN invoice.
+    // The gateway needs ecash balance to create HTLC-locked tokens.
+    {
+        let fund_amount_msat = 500_000; // 500 sats
+        let description = Bolt11InvoiceDescription::Direct(
+            Description::new("fund-gateway".to_string()).expect("valid description"),
+        );
+        let invoice = env
+            .node
+            .bolt11_payment()
+            .receive(fund_amount_msat, &description, 3600)
+            .expect("Failed to create funding invoice");
+
+        let proofs = env.alice.get_proofs().await.expect("Failed to get proofs");
+        let request = cashu_gateway_protocol::PayInvoiceRequest {
+            bolt11: invoice.to_string(),
+            proofs,
+        };
+        let response = gateway_client
+            .pay_invoice(request)
+            .await
+            .expect("Gateway funding via pay_invoice failed");
+        assert!(response.paid, "Funding payment should succeed");
+    }
+
+    // Step 1: Alice generates preimage and hash
+    let (preimage, preimage_hash_hex) = common::generate_preimage_pair();
+
+    // Step 2: Alice requests a HODL invoice from the gateway
+    let amount_sats = 100;
+    let request = cashu_gateway_protocol::RequestInvoiceRequest {
+        amount_sats,
+        pubkey: env.alice.pubkey_hex(),
+        blinded_messages: vec![], // gateway creates proofs directly, not from blinded messages
+        preimage_hash: preimage_hash_hex,
+    };
+
+    let response = gateway_client
+        .request_invoice(request)
+        .await
+        .expect("request_invoice failed");
+
+    // Step 3: Verify response
+    assert!(
+        !response.bolt11.is_empty(),
+        "Should return a bolt11 invoice"
+    );
+    assert!(
+        !response.payment_hash.is_empty(),
+        "Should return payment hash"
+    );
+    assert!(
+        !response.htlc_token.is_empty(),
+        "Should return HTLC token"
+    );
+
+    // Step 4: External payer (test node) pays the HODL invoice
+    let payment_result = env
+        .pay_invoice(&response.bolt11)
+        .expect("Test node failed to pay HODL invoice");
+    assert_eq!(payment_result.amount_msat, amount_sats * 1000);
+
+    // Step 5: Alice claims the HTLC-locked ecash using her preimage.
+    // She needs her signing key (for SIG_ALL) and the preimage.
+    let preimage_hex = hex::encode(preimage);
+    let opts = cdk::wallet::ReceiveOptions {
+        preimages: vec![preimage_hex],
+        p2pk_signing_keys: vec![env.alice.secret_key.clone()],
+        ..Default::default()
+    };
+
+    let claimed_amount = env
+        .alice
+        .wallet
+        .receive(&response.htlc_token, opts)
+        .await
+        .expect("Alice failed to claim HTLC token");
+
+    let claimed_sats = u64::from(claimed_amount);
+    assert!(claimed_sats > 0, "Alice should have received ecash");
+
+    // Note: Full HODL invoice settlement (gateway extracting preimage via NUT-07
+    // and settling the LN HTLC) is not yet wired -- Phase 3 will add that.
 }

@@ -40,7 +40,9 @@ rand = "0.8"
 tempfile = "3"
 uuid = { version = "1", features = ["v4"] }
 rand = "0.8"
+hex = "0.4"
 cdk = { git = "https://github.com/cashubtc/cdk.git", tag = "v0.16.0-rc.2", default-features = false, features = ["wallet"] }
 cdk-common = { git = "https://github.com/cashubtc/cdk.git", tag = "v0.16.0-rc.2" }
 cdk-sqlite = { git = "https://github.com/cashubtc/cdk.git", tag = "v0.16.0-rc.2" }
 cashu-gateway-protocol = { path = "../protocol" }
+cashu-alice = { path = "../alice" }
