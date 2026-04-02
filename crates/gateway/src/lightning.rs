@@ -28,5 +28,11 @@ pub trait LightningBackend: Send + Sync {
         expiry_secs: u32,
     ) -> Result<Bolt11Invoice>;
 
+    /// Settle a HODL invoice by providing the preimage.
+    ///
+    /// Called by the HTLC watcher when it discovers Alice has claimed the
+    /// ecash tokens, revealing the preimage via NUT-07.
+    fn settle_hodl_invoice(&self, payment_hash: &str, preimage: &str) -> Result<()>;
+
     fn shutdown(&self) -> Result<()>;
 }
