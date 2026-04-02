@@ -248,17 +248,16 @@ impl Gateway {
                                     payment_hash = %payment_hash,
                                     "HODL invoice settled successfully"
                                 );
+                                to_remove.push(payment_hash.clone());
                             }
                             Err(e) => {
                                 tracing::error!(
                                     payment_hash = %payment_hash,
                                     error = %e,
-                                    "Failed to settle HODL invoice"
+                                    "Failed to settle HODL invoice, will retry"
                                 );
                             }
                         }
-
-                        to_remove.push(payment_hash.clone());
                     }
                     Ok(None) => {
                         // Still pending — no action

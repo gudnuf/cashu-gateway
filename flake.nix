@@ -229,6 +229,10 @@
             getBlockCount
             listUnspent
 
+            # Build dependencies
+            pkgs.pkg-config
+            pkgs.openssl
+
             # Utilities
             pkgs.curl
             pkgs.jq
