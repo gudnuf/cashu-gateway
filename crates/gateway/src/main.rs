@@ -82,6 +82,9 @@ async fn main() -> Result<()> {
             let balance = gateway.ecash().get_balance().await?;
             info!(balance_sats = balance, "Gateway ready");
 
+            // Spawn HTLC settlement watcher as background task
+            tokio::spawn(gateway.clone().run_htlc_watcher());
+
             // Gateway library routes (already has state applied)
             let gateway_router = gateway.router();
 

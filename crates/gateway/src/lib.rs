@@ -19,16 +19,19 @@ pub mod ecash;
 pub mod ldk;
 pub mod lightning;
 
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::str::FromStr;
 use std::sync::Arc;
+use std::time::Duration;
 
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use cdk::nuts::{CurrencyUnit, PublicKey as EcashPublicKey, Token};
+use cdk::nuts::{CurrencyUnit, Proof, PublicKey as EcashPublicKey, Token};
 use serde::{Deserialize, Serialize};
+use tokio::sync::Mutex;
 
 // Public exports for the gateway
 pub use config::{GatewayConfig, LdkConfig, StandaloneConfig};
@@ -57,15 +60,30 @@ pub struct MakeInvoiceResponse {
     pub bolt11: String,
 }
 
+/// A pending HTLC awaiting settlement.
+///
+/// Created when `/request-invoice` issues HTLC-locked ecash.
+/// The watcher polls the mint to detect when Alice claims the tokens,
+/// then settles the corresponding HODL invoice.
+struct PendingHtlc {
+    /// The HTLC-locked proofs sent to Alice (used for NUT-07 state check)
+    proofs: Vec<Proof>,
+    /// Unix timestamp when the HTLC expires (after which gateway can refund)
+    expires_at: u64,
+}
+
 /// The Cashu Gateway -- bridges ecash and Lightning.
 ///
 /// Embeddable: create with `from_ldk_node()` or `new()`, then call `router()`
-/// to get axum routes you can merge into your own server.
+/// to get axum routes you can merge into your own server. Call `run_htlc_watcher()`
+/// as a background task to auto-settle HODL invoices when Alice claims ecash.
 #[derive(Clone)]
 pub struct Gateway {
     backend: Arc<dyn LightningBackend>,
     ecash: Arc<ecash::EcashWallet>,
     config: GatewayConfig,
+    /// payment_hash → PendingHtlc for active HTLC tokens awaiting settlement
+    pending_htlcs: Arc<Mutex<HashMap<String, PendingHtlc>>>,
 }
 
 impl Gateway {
@@ -83,6 +101,7 @@ impl Gateway {
             backend,
             ecash,
             config,
+            pending_htlcs: Arc::new(Mutex::new(HashMap::new())),
         })
     }
 
@@ -98,6 +117,7 @@ impl Gateway {
             backend,
             ecash,
             config,
+            pending_htlcs: Arc::new(Mutex::new(HashMap::new())),
         })
     }
 
@@ -141,6 +161,130 @@ impl Gateway {
         self.backend
             .create_invoice_for_hash(amount_msat, payment_hash, expiry_secs)
             .map(|invoice| invoice.to_string())
+    }
+
+    /// Register HTLC-locked proofs for background settlement watching.
+    async fn register_pending_htlc(
+        &self,
+        payment_hash: String,
+        proofs: Vec<Proof>,
+        expires_at: u64,
+    ) {
+        let mut pending = self.pending_htlcs.lock().await;
+        tracing::info!(
+            payment_hash = %payment_hash,
+            num_proofs = proofs.len(),
+            expires_at,
+            pending_count = pending.len() + 1,
+            "Registered pending HTLC for watcher"
+        );
+        pending.insert(payment_hash, PendingHtlc { proofs, expires_at });
+    }
+
+    /// Run the HTLC settlement watcher as a background task.
+    ///
+    /// Polls the mint (NUT-07) for each pending HTLC to detect when Alice
+    /// claims the ecash tokens. When a preimage is discovered, settles the
+    /// corresponding HODL invoice on the Lightning backend.
+    ///
+    /// Also cleans up expired HTLCs that passed their locktime without being claimed.
+    ///
+    /// This method runs forever — spawn it as a tokio task:
+    /// ```ignore
+    /// tokio::spawn(gateway.clone().run_htlc_watcher());
+    /// ```
+    pub async fn run_htlc_watcher(self) {
+        let poll_interval = Duration::from_secs(5);
+        tracing::info!(
+            poll_interval_secs = poll_interval.as_secs(),
+            "HTLC watcher started"
+        );
+
+        loop {
+            tokio::time::sleep(poll_interval).await;
+
+            // Snapshot current pending HTLCs
+            let snapshot: Vec<(String, Vec<Proof>, u64)> = {
+                let pending = self.pending_htlcs.lock().await;
+                if pending.is_empty() {
+                    continue;
+                }
+                pending
+                    .iter()
+                    .map(|(hash, htlc)| (hash.clone(), htlc.proofs.clone(), htlc.expires_at))
+                    .collect()
+            };
+
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
+
+            let mut to_remove = Vec::new();
+
+            for (payment_hash, proofs, expires_at) in &snapshot {
+                // Clean up expired HTLCs
+                if now > *expires_at {
+                    tracing::warn!(
+                        payment_hash = %payment_hash,
+                        "HTLC expired without claim, removing from watcher"
+                    );
+                    to_remove.push(payment_hash.clone());
+                    continue;
+                }
+
+                // Poll mint for proof state
+                match self.ecash.check_htlc_state(proofs).await {
+                    Ok(Some(preimage)) => {
+                        tracing::info!(
+                            payment_hash = %payment_hash,
+                            preimage = %preimage,
+                            "Preimage discovered — settling HODL invoice"
+                        );
+
+                        match self.backend.settle_hodl_invoice(payment_hash, &preimage) {
+                            Ok(()) => {
+                                tracing::info!(
+                                    payment_hash = %payment_hash,
+                                    "HODL invoice settled successfully"
+                                );
+                                to_remove.push(payment_hash.clone());
+                            }
+                            Err(e) => {
+                                tracing::error!(
+                                    payment_hash = %payment_hash,
+                                    error = %e,
+                                    "Failed to settle HODL invoice, will retry"
+                                );
+                            }
+                        }
+                    }
+                    Ok(None) => {
+                        // Still pending — no action
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            payment_hash = %payment_hash,
+                            error = %e,
+                            "NUT-07 check failed, will retry"
+                        );
+                    }
+                }
+            }
+
+            // Remove settled/expired HTLCs
+            if !to_remove.is_empty() {
+                let mut pending = self.pending_htlcs.lock().await;
+                for hash in &to_remove {
+                    pending.remove(hash);
+                }
+                tracing::debug!(
+                    removed = to_remove.len(),
+                    remaining = pending.len(),
+                    "Cleaned up pending HTLCs"
+                );
+            }
+        }
     }
 }
 
@@ -241,7 +385,11 @@ async fn request_invoice_handler(
             )
         })?;
 
-    // 4. Serialize HTLC proofs as a Cashu V4 token
+    // 4. Register proofs with the HTLC watcher for auto-settlement
+    gw.register_pending_htlc(payment_hash.clone(), htlc_proofs.clone(), locktime)
+        .await;
+
+    // 5. Serialize HTLC proofs as a Cashu V4 token
     let mint_url = gw.ecash.wallet().mint_url.clone();
     let token = Token::new(mint_url, htlc_proofs, None, CurrencyUnit::Sat);
 

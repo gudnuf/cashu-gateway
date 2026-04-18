@@ -299,6 +299,42 @@ impl LightningBackend for LdkLightningBackend {
         Ok(invoice)
     }
 
+    fn settle_hodl_invoice(&self, payment_hash: &str, preimage: &str) -> Result<()> {
+        let payment_hash_str = payment_hash;
+        let hash_bytes: [u8; 32] = FromHex::from_hex(payment_hash)
+            .map_err(|e| anyhow!("Invalid payment hash hex: {}", e))?;
+        let preimage_bytes: [u8; 32] = FromHex::from_hex(preimage)
+            .map_err(|e| anyhow!("Invalid preimage hex: {}", e))?;
+
+        let payment_hash = PaymentHash(hash_bytes);
+        let preimage = ldk_node::lightning_types::payment::PaymentPreimage(preimage_bytes);
+
+        // Look up claimable amount from pending payments
+        let payment_id =
+            ldk_node::lightning::ln::channelmanager::PaymentId(hash_bytes);
+        let claimable_amount = self
+            .node
+            .list_payments()
+            .iter()
+            .find(|p| p.id == payment_id)
+            .and_then(|p| p.amount_msat)
+            .ok_or_else(|| {
+                anyhow!("No pending payment found for hash {}", payment_hash_str)
+            })?;
+
+        self.node
+            .bolt11_payment()
+            .claim_for_hash(payment_hash, claimable_amount, preimage)?;
+
+        tracing::info!(
+            payment_hash = %payment_hash_str,
+            claimable_amount_msat = claimable_amount,
+            "HODL invoice settled"
+        );
+
+        Ok(())
+    }
+
     fn shutdown(&self) -> Result<()> {
         self.stop_node()
     }
